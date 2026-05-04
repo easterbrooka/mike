@@ -1,12 +1,17 @@
 /**
- * Cloudflare R2 storage utilities for Mike document management.
- * R2 is S3-compatible — uses @aws-sdk/client-s3.
+ * S3-compatible storage utilities for Mike document management.
+ * Works with either Cloudflare R2 or AWS S3 — both use @aws-sdk/client-s3.
  *
- * Required env vars:
- *   R2_ENDPOINT_URL     — https://<account-id>.r2.cloudflarestorage.com
- *   R2_ACCESS_KEY_ID    — R2 API token (Access Key ID)
- *   R2_SECRET_ACCESS_KEY — R2 API token (Secret Access Key)
- *   R2_BUCKET_NAME      — bucket name (default: "mike")
+ * Env vars:
+ *   R2_BUCKET_NAME       — bucket name (default: "mike")
+ *   R2_REGION            — AWS region (e.g. ap-southeast-2). Falls back to
+ *                          AWS_REGION (auto-set inside ECS) and finally "auto"
+ *                          which is required for R2.
+ *   R2_ENDPOINT_URL      — optional. Set for R2 (https://<acct>.r2.cloudflarestorage.com)
+ *                          or local minio. Leave unset for AWS S3.
+ *   R2_ACCESS_KEY_ID     — optional. If unset, the SDK's default credential
+ *   R2_SECRET_ACCESS_KEY   provider chain is used (picks up the ECS task role
+ *                          when running on AWS).
  */
 
 import {
@@ -18,23 +23,28 @@ import {
 import { getSignedUrl as awsGetSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 function getClient(): S3Client {
+  const endpoint = process.env.R2_ENDPOINT_URL;
+  const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+  const region = process.env.R2_REGION ?? process.env.AWS_REGION ?? "auto";
+
   return new S3Client({
-    region: "auto",
-    endpoint: process.env.R2_ENDPOINT_URL!,
-    credentials: {
-      accessKeyId: process.env.R2_ACCESS_KEY_ID!,
-      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
-    },
+    region,
+    ...(endpoint ? { endpoint } : {}),
+    ...(accessKeyId && secretAccessKey
+      ? { credentials: { accessKeyId, secretAccessKey } }
+      : {}),
   });
 }
 
 const BUCKET = process.env.R2_BUCKET_NAME ?? "mike";
 
-export const storageEnabled = Boolean(
-  process.env.R2_ENDPOINT_URL &&
-  process.env.R2_ACCESS_KEY_ID &&
-  process.env.R2_SECRET_ACCESS_KEY,
+const hasExplicitCreds = Boolean(
+  process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY,
 );
+const hasAwsRegion = Boolean(process.env.AWS_REGION ?? process.env.R2_REGION);
+
+export const storageEnabled = hasExplicitCreds || hasAwsRegion;
 
 // ---------------------------------------------------------------------------
 // Upload
