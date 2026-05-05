@@ -14,9 +14,17 @@ import { systemRouter } from "./routes/system";
 const app = express();
 const PORT = process.env.PORT ?? 3001;
 
+const allowedOrigins = (process.env.FRONTEND_URL ?? "http://localhost:3000")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL ?? "http://localhost:3000",
+    origin: (origin, cb) => {
+      if (!origin || allowedOrigins.includes(origin)) cb(null, true);
+      else cb(new Error("Not allowed by CORS"));
+    },
     credentials: true,
   }),
 );
