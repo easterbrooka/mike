@@ -606,7 +606,7 @@ export function TRChatPanel({
     initialChatId,
     onChatIdChange,
 }: Props) {
-    const { profile, updateModelPreference } = useUserProfile();
+    const { profile, systemProviders, updateModelPreference } = useUserProfile();
     const apiKeys = {
         claudeApiKey: profile?.claudeApiKey ?? null,
         geminiApiKey: profile?.geminiApiKey ?? null,
@@ -957,7 +957,7 @@ export function TRChatPanel({
 
     async function handleSubmit(trimmed: string) {
         if (!trimmed || isLoading) return;
-        if (!isModelAvailable(currentModel, apiKeys)) {
+        if (!isModelAvailable(currentModel, apiKeys, systemProviders)) {
             setApiKeyModalProvider(getModelProvider(currentModel));
             return;
         }

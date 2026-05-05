@@ -11,6 +11,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { isModelAvailable } from "@/app/lib/modelAvailability";
+import { useUserProfile } from "@/contexts/UserProfileContext";
 
 export interface ModelOption {
     id: string;
@@ -42,10 +43,11 @@ interface Props {
 
 export function ModelToggle({ value, onChange, apiKeys }: Props) {
     const [isOpen, setIsOpen] = useState(false);
+    const { systemProviders } = useUserProfile();
     const selected = MODELS.find((m) => m.id === value);
     const selectedLabel = selected?.label ?? "Model";
     const selectedAvailable = apiKeys
-        ? isModelAvailable(value, apiKeys)
+        ? isModelAvailable(value, apiKeys, systemProviders)
         : true;
 
     return (
@@ -81,7 +83,7 @@ export function ModelToggle({ value, onChange, apiKeys }: Props) {
                             </DropdownMenuLabel>
                             {items.map((m) => {
                                 const available = apiKeys
-                                    ? isModelAvailable(m.id, apiKeys)
+                                    ? isModelAvailable(m.id, apiKeys, systemProviders)
                                     : true;
                                 return (
                                     <DropdownMenuItem

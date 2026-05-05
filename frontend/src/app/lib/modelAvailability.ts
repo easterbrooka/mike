@@ -2,6 +2,11 @@ import { MODELS, type ModelOption } from "../components/assistant/ModelToggle";
 
 export type ModelProvider = "claude" | "gemini";
 
+export interface SystemProviders {
+    claude: boolean;
+    gemini: boolean;
+}
+
 export function getModelProvider(modelId: string): ModelProvider | null {
     const model = MODELS.find((m) => m.id === modelId);
     if (!model) return null;
@@ -11,21 +16,24 @@ export function getModelProvider(modelId: string): ModelProvider | null {
 export function isModelAvailable(
     modelId: string,
     apiKeys: { claudeApiKey: string | null; geminiApiKey: string | null },
+    systemProviders?: SystemProviders,
 ): boolean {
     const provider = getModelProvider(modelId);
     if (!provider) return false;
-    return provider === "claude"
-        ? !!apiKeys.claudeApiKey?.trim()
-        : !!apiKeys.geminiApiKey?.trim();
+    return isProviderAvailable(provider, apiKeys, systemProviders);
 }
 
 export function isProviderAvailable(
     provider: ModelProvider,
     apiKeys: { claudeApiKey: string | null; geminiApiKey: string | null },
+    systemProviders?: SystemProviders,
 ): boolean {
-    return provider === "claude"
-        ? !!apiKeys.claudeApiKey?.trim()
-        : !!apiKeys.geminiApiKey?.trim();
+    if (provider === "claude") {
+        return (
+            !!apiKeys.claudeApiKey?.trim() || !!systemProviders?.claude
+        );
+    }
+    return !!apiKeys.geminiApiKey?.trim() || !!systemProviders?.gemini;
 }
 
 export function providerLabel(provider: ModelProvider): string {

@@ -66,7 +66,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
         title: string;
     } | null>(null);
     const [model, setModel] = useSelectedModel();
-    const { profile } = useUserProfile();
+    const { profile, systemProviders } = useUserProfile();
     const apiKeys = {
         claudeApiKey: profile?.claudeApiKey ?? null,
         geminiApiKey: profile?.geminiApiKey ?? null,
@@ -116,7 +116,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
     const handleSubmit = () => {
         const query = value.trim();
         if (!query || isLoading) return;
-        if (!isModelAvailable(model, apiKeys)) {
+        if (!isModelAvailable(model, apiKeys, systemProviders)) {
             setApiKeyModalProvider(getModelProvider(model));
             return;
         }

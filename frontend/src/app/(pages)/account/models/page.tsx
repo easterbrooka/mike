@@ -103,8 +103,9 @@ function TabularModelDropdown({
     apiKeys: { claudeApiKey: string | null; geminiApiKey: string | null };
 }) {
     const [isOpen, setIsOpen] = useState(false);
+    const { systemProviders } = useUserProfile();
     const selected = MODELS.find((m) => m.id === value);
-    const selectedAvailable = isModelAvailable(value, apiKeys);
+    const selectedAvailable = isModelAvailable(value, apiKeys, systemProviders);
     const groups: ("Anthropic" | "Google")[] = ["Anthropic", "Google"];
 
     return (
@@ -146,6 +147,7 @@ function TabularModelDropdown({
                                 const available = isModelAvailable(
                                     m.id,
                                     apiKeys,
+                                    systemProviders,
                                 );
                                 return (
                                     <DropdownMenuItem

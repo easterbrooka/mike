@@ -10,6 +10,7 @@ import React, {
 } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+import type { SystemProviders } from "@/app/lib/modelAvailability";
 
 interface UserProfile {
     displayName: string | null;
@@ -23,9 +24,12 @@ interface UserProfile {
     geminiApiKey: string | null;
 }
 
+const NO_SYSTEM_PROVIDERS: SystemProviders = { claude: false, gemini: false };
+
 interface UserProfileContextType {
     profile: UserProfile | null;
     loading: boolean;
+    systemProviders: SystemProviders;
     updateDisplayName: (name: string) => Promise<boolean>;
     updateOrganisation: (organisation: string) => Promise<boolean>;
     updateModelPreference: (
@@ -48,6 +52,9 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
     const { user, isAuthenticated } = useAuth();
     const [profile, setProfile] = useState<UserProfile | null>(null);
     const [loading, setLoading] = useState(true);
+    const [systemProviders, setSystemProviders] = useState<SystemProviders>(
+        NO_SYSTEM_PROVIDERS,
+    );
 
     const loadProfile = useCallback(async (userId: string) => {
         try {
@@ -158,11 +165,35 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
         if (isAuthenticated && user) {
             setLoading(true);
             loadProfile(user.id);
+            loadSystemProviders();
         } else {
             setProfile(null);
+            setSystemProviders(NO_SYSTEM_PROVIDERS);
             setLoading(false);
         }
     }, [isAuthenticated, user, loadProfile]);
+
+    async function loadSystemProviders() {
+        try {
+            const {
+                data: { session },
+            } = await supabase.auth.getSession();
+            if (!session) return;
+            const apiBase =
+                process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
+            const res = await fetch(`${apiBase}/system/llm-providers`, {
+                headers: { Authorization: `Bearer ${session.access_token}` },
+            });
+            if (!res.ok) return;
+            const data = (await res.json()) as SystemProviders;
+            setSystemProviders({
+                claude: !!data.claude,
+                gemini: !!data.gemini,
+            });
+        } catch {
+            // Best-effort; on failure, fall back to per-user keys only.
+        }
+    }
 
     const updateDisplayName = useCallback(
         async (displayName: string): Promise<boolean> => {
@@ -327,6 +358,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
             value={{
                 profile,
                 loading,
+                systemProviders,
                 updateDisplayName,
                 updateOrganisation,
                 updateModelPreference,
