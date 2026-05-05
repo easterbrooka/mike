@@ -14,6 +14,12 @@ import {
 } from "@/app/lib/mikeApi";
 import { FileDirectory } from "../shared/FileDirectory";
 import { BUILT_IN_WORKFLOWS } from "../workflows/builtinWorkflows";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface Props {
     open: boolean;
@@ -512,23 +518,37 @@ export function AddNewTRModal({
                             >
                                 Cancel
                             </button>
-                            <button
-                                type="submit"
-                                disabled={
-                                    !title.trim() ||
-                                    (underProject && !selectedProjectId)
-                                }
-                                title={
-                                    !title.trim()
-                                        ? "Review name required"
-                                        : underProject && !selectedProjectId
-                                        ? "Select a project"
-                                        : undefined
-                                }
-                                className="rounded-lg bg-gray-900 px-5 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
-                            >
-                                Create
-                            </button>
+                            {(() => {
+                                const disabledReason = !title.trim()
+                                    ? "Review name required"
+                                    : underProject && !selectedProjectId
+                                      ? "Select a project"
+                                      : null;
+                                const button = (
+                                    <button
+                                        type="submit"
+                                        disabled={!!disabledReason}
+                                        className="rounded-lg bg-gray-900 px-5 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
+                                    >
+                                        Create
+                                    </button>
+                                );
+                                if (!disabledReason) return button;
+                                return (
+                                    <TooltipProvider delayDuration={150}>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <span tabIndex={0} className="inline-block">
+                                                    {button}
+                                                </span>
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                {disabledReason}
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </TooltipProvider>
+                                );
+                            })()}
                         </div>
                     </div>
                 </form>

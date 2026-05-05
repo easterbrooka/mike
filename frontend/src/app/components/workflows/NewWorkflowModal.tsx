@@ -5,6 +5,12 @@ import { X, MessageSquare, Table2 } from "lucide-react";
 import { createWorkflow, updateWorkflow } from "@/app/lib/mikeApi";
 import type { MikeWorkflow } from "../shared/types";
 import { PRACTICE_OPTIONS } from "./practices";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface Props {
     open: boolean;
@@ -203,18 +209,37 @@ export function NewWorkflowModal({ open, onClose, onCreated, editWorkflow, onUpd
                         >
                             Cancel
                         </button>
-                        <button
-                            type="submit"
-                            disabled={!title.trim() || loading}
-                            title={
-                                !title.trim()
-                                    ? `${isEditing ? "Title" : "Workflow name"} required`
-                                    : undefined
-                            }
-                            className="rounded-lg bg-gray-900 px-5 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
-                        >
-                            {loading ? (isEditing ? "Saving…" : "Creating…") : (isEditing ? "Save changes" : "Create workflow")}
-                        </button>
+                        {(() => {
+                            const disabledReason = loading
+                                ? null
+                                : !title.trim()
+                                  ? `${isEditing ? "Title" : "Workflow name"} required`
+                                  : null;
+                            const button = (
+                                <button
+                                    type="submit"
+                                    disabled={!title.trim() || loading}
+                                    className="rounded-lg bg-gray-900 px-5 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
+                                >
+                                    {loading ? (isEditing ? "Saving…" : "Creating…") : (isEditing ? "Save changes" : "Create workflow")}
+                                </button>
+                            );
+                            if (!disabledReason) return button;
+                            return (
+                                <TooltipProvider delayDuration={150}>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <span tabIndex={0} className="inline-block">
+                                                {button}
+                                            </span>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                            {disabledReason}
+                                        </TooltipContent>
+                                    </Tooltip>
+                                </TooltipProvider>
+                            );
+                        })()}
                     </div>
                 </form>
             </div>
