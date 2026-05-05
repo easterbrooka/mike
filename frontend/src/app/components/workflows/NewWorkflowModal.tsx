@@ -206,6 +206,11 @@ export function NewWorkflowModal({ open, onClose, onCreated, editWorkflow, onUpd
                         <button
                             type="submit"
                             disabled={!title.trim() || loading}
+                            title={
+                                !title.trim()
+                                    ? `${isEditing ? "Title" : "Workflow name"} required`
+                                    : undefined
+                            }
                             className="rounded-lg bg-gray-900 px-5 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-40 transition-colors"
                         >
                             {loading ? (isEditing ? "Saving…" : "Creating…") : (isEditing ? "Save changes" : "Create workflow")}
