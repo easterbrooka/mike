@@ -7,6 +7,15 @@ export interface SystemProviders {
     gemini: boolean;
 }
 
+/**
+ * Per-user API-key configuration status. Booleans only — the raw keys
+ * never come back to the browser.
+ */
+export interface UserKeyStatus {
+    claudeKeyConfigured: boolean;
+    geminiKeyConfigured: boolean;
+}
+
 export function getModelProvider(modelId: string): ModelProvider | null {
     const model = MODELS.find((m) => m.id === modelId);
     if (!model) return null;
@@ -15,25 +24,23 @@ export function getModelProvider(modelId: string): ModelProvider | null {
 
 export function isModelAvailable(
     modelId: string,
-    apiKeys: { claudeApiKey: string | null; geminiApiKey: string | null },
+    keys: UserKeyStatus,
     systemProviders?: SystemProviders,
 ): boolean {
     const provider = getModelProvider(modelId);
     if (!provider) return false;
-    return isProviderAvailable(provider, apiKeys, systemProviders);
+    return isProviderAvailable(provider, keys, systemProviders);
 }
 
 export function isProviderAvailable(
     provider: ModelProvider,
-    apiKeys: { claudeApiKey: string | null; geminiApiKey: string | null },
+    keys: UserKeyStatus,
     systemProviders?: SystemProviders,
 ): boolean {
     if (provider === "claude") {
-        return (
-            !!apiKeys.claudeApiKey?.trim() || !!systemProviders?.claude
-        );
+        return keys.claudeKeyConfigured || !!systemProviders?.claude;
     }
-    return !!apiKeys.geminiApiKey?.trim() || !!systemProviders?.gemini;
+    return keys.geminiKeyConfigured || !!systemProviders?.gemini;
 }
 
 export function providerLabel(provider: ModelProvider): string {

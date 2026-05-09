@@ -1263,7 +1263,7 @@ async function readDocumentContent(
             );
         }
         console.log(
-            `[read_document] DONE filename="${docInfo.filename}" finalTextLength=${text.length} firstChars=${JSON.stringify(text.slice(0, 120))}`,
+            `[read_document] DONE filename="${docInfo.filename}" finalTextLength=${text.length}`,
         );
         emitDocRead();
         return text;

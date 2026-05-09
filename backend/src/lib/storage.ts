@@ -12,6 +12,12 @@
  *   R2_ACCESS_KEY_ID     — optional. If unset, the SDK's default credential
  *   R2_SECRET_ACCESS_KEY   provider chain is used (picks up the ECS task role
  *                          when running on AWS).
+ *   KMS_KEY_ID           — optional. When set, every PutObject is sent with
+ *                          ServerSideEncryption=aws:kms + this key ID, which
+ *                          gives CloudTrail audit logging on every Decrypt.
+ *                          When unset, falls back to ServerSideEncryption=AES256
+ *                          (SSE-S3) which is supported by both AWS S3 and
+ *                          Cloudflare R2 with no extra config.
  */
 
 import {
@@ -46,6 +52,26 @@ const hasAwsRegion = Boolean(process.env.AWS_REGION ?? process.env.R2_REGION);
 
 export const storageEnabled = hasExplicitCreds || hasAwsRegion;
 
+/**
+ * Build the SSE arguments to pass alongside every PutObjectCommand.
+ * Returns either {ServerSideEncryption: "aws:kms", SSEKMSKeyId: ...} when
+ * KMS_KEY_ID is set, or {ServerSideEncryption: "AES256"} otherwise.
+ *
+ * Setting these on every put removes any reliance on bucket-default
+ * encryption staying correctly configured — a misconfiguration there
+ * would silently start storing plaintext on disk.
+ */
+function sseArgs(): {
+  ServerSideEncryption: "aws:kms" | "AES256";
+  SSEKMSKeyId?: string;
+} {
+  const kmsKeyId = process.env.KMS_KEY_ID;
+  if (kmsKeyId) {
+    return { ServerSideEncryption: "aws:kms", SSEKMSKeyId: kmsKeyId };
+  }
+  return { ServerSideEncryption: "AES256" };
+}
+
 // ---------------------------------------------------------------------------
 // Upload
 // ---------------------------------------------------------------------------
@@ -62,6 +88,7 @@ export async function uploadFile(
       Key: key,
       Body: Buffer.from(content),
       ContentType: contentType,
+      ...sseArgs(),
     }),
   );
 }

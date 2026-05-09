@@ -6,6 +6,11 @@ import type {
 } from "./types";
 import { toGeminiTools } from "./tools";
 
+// Same rationale as claude.ts: stream chunks contain the user's content and
+// reasoning, so default-on logging is a breach surface. Opt-in via
+// LOG_LLM_RAW=1.
+const RAW_STREAM_LOGGING_ENABLED = process.env.LOG_LLM_RAW === "1";
+
 type GeminiPart = {
     text?: string;
     // Set by Gemini when the text content is a thought summary rather than
@@ -77,7 +82,12 @@ export async function streamGemini(
         let sawThinking = false;
 
         for await (const chunk of stream) {
-            console.log("[gemini stream chunk]", JSON.stringify(chunk, null, 2));
+            if (RAW_STREAM_LOGGING_ENABLED) {
+                console.log(
+                    "[gemini stream chunk]",
+                    JSON.stringify(chunk, null, 2),
+                );
+            }
             const parts =
                 (chunk as { candidates?: { content?: { parts?: GeminiPart[] } }[] })
                     .candidates?.[0]?.content?.parts ?? [];

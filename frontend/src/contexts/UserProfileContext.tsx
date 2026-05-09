@@ -10,6 +10,7 @@ import React, {
 } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+import { apiBase } from "@/app/lib/apiBase";
 import type { SystemProviders } from "@/app/lib/modelAvailability";
 
 interface UserProfile {
@@ -20,8 +21,14 @@ interface UserProfile {
     creditsRemaining: number;
     tier: string;
     tabularModel: string;
-    claudeApiKey: string | null;
-    geminiApiKey: string | null;
+    /**
+     * True when the user has saved a Claude / Gemini API key. The actual
+     * key is never loaded into the browser — XSS would otherwise read it
+     * out of React state. Storage / mutation lives entirely on the
+     * backend (`GET/PUT /user/api-keys/...`).
+     */
+    claudeKeyConfigured: boolean;
+    geminiKeyConfigured: boolean;
 }
 
 const NO_SYSTEM_PROVIDERS: SystemProviders = { claude: false, gemini: false };
@@ -58,9 +65,13 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
 
     const loadProfile = useCallback(async (userId: string) => {
         try {
+            // Explicit column list — the api_key columns are deliberately
+            // omitted so the raw keys never leave the backend.
             const { data, error } = await supabase
                 .from("user_profiles")
-                .select("*")
+                .select(
+                    "display_name, organisation, message_credits_used, credits_reset_date, tier, tabular_model",
+                )
                 .eq("user_id", userId)
                 .single();
 
@@ -72,6 +83,10 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
             futureResetDate.setDate(futureResetDate.getDate() + 30);
             const defaultResetDateStr = futureResetDate.toISOString();
 
+            // Whether each provider is configured comes from a separate
+            // backend call — the keys themselves stay server-side.
+            const apiKeyStatus = await fetchApiKeyStatus();
+
             if (error) {
                 // Set fallback profile data if profile doesn't exist
                 setProfile({
@@ -82,8 +97,8 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                     creditsRemaining: MONTHLY_CREDIT_LIMIT,
                     tier: "Free",
                     tabularModel: "gemini-3-flash-preview",
-                    claudeApiKey: null,
-                    geminiApiKey: null,
+                    claudeKeyConfigured: apiKeyStatus.claude,
+                    geminiKeyConfigured: apiKeyStatus.gemini,
                 });
                 return;
             }
@@ -116,8 +131,8 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                     tier: data.tier || "Free",
                     tabularModel:
                         data.tabular_model || "gemini-3-flash-preview",
-                    claudeApiKey: data.claude_api_key ?? null,
-                    geminiApiKey: data.gemini_api_key ?? null,
+                    claudeKeyConfigured: apiKeyStatus.claude,
+                    geminiKeyConfigured: apiKeyStatus.gemini,
                 });
 
                 // 2. Update database in background if needed
@@ -140,6 +155,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                 }
             }
         } catch (e) {
+            console.error("Failed to load profile", e);
             // Calculate a default future reset date for fallback
             const futureResetDate = new Date();
             futureResetDate.setDate(futureResetDate.getDate() + 30);
@@ -153,8 +169,8 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                 creditsRemaining: 999999, // temporarily unlimited
                 tier: "Free",
                 tabularModel: "gemini-3-flash-preview",
-                claudeApiKey: null,
-                geminiApiKey: null,
+                claudeKeyConfigured: false,
+                geminiKeyConfigured: false,
             });
         } finally {
             setLoading(false);
@@ -179,9 +195,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                 data: { session },
             } = await supabase.auth.getSession();
             if (!session) return;
-            const apiBase =
-                process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
-            const res = await fetch(`${apiBase}/system/llm-providers`, {
+            const res = await fetch(`${apiBase()}/system/llm-providers`, {
                 headers: { Authorization: `Bearer ${session.access_token}` },
             });
             if (!res.ok) return;
@@ -192,6 +206,32 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
             });
         } catch {
             // Best-effort; on failure, fall back to per-user keys only.
+        }
+    }
+
+    async function fetchApiKeyStatus(): Promise<{
+        claude: boolean;
+        gemini: boolean;
+    }> {
+        try {
+            const {
+                data: { session },
+            } = await supabase.auth.getSession();
+            if (!session) return { claude: false, gemini: false };
+            const res = await fetch(`${apiBase()}/user/api-keys/status`, {
+                headers: { Authorization: `Bearer ${session.access_token}` },
+            });
+            if (!res.ok) return { claude: false, gemini: false };
+            const data = (await res.json()) as {
+                claude?: boolean;
+                gemini?: boolean;
+            };
+            return {
+                claude: !!data.claude,
+                gemini: !!data.gemini,
+            };
+        } catch {
+            return { claude: false, gemini: false };
         }
     }
 
@@ -280,22 +320,32 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
             value: string | null,
         ): Promise<boolean> => {
             if (!user) return false;
-            const dbField =
-                provider === "claude" ? "claude_api_key" : "gemini_api_key";
             const stateField =
-                provider === "claude" ? "claudeApiKey" : "geminiApiKey";
+                provider === "claude"
+                    ? "claudeKeyConfigured"
+                    : "geminiKeyConfigured";
             const normalized = value?.trim() ? value.trim() : null;
             try {
-                const { error } = await supabase
-                    .from("user_profiles")
-                    .update({
-                        [dbField]: normalized,
-                        updated_at: new Date().toISOString(),
-                    })
-                    .eq("user_id", user.id);
-                if (error) throw error;
+                const {
+                    data: { session },
+                } = await supabase.auth.getSession();
+                if (!session) return false;
+                const res = await fetch(
+                    `${apiBase()}/user/api-keys/${provider}`,
+                    {
+                        method: "PUT",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${session.access_token}`,
+                        },
+                        body: JSON.stringify({ value: normalized }),
+                    },
+                );
+                if (!res.ok) return false;
                 setProfile((prev) =>
-                    prev ? { ...prev, [stateField]: normalized } : null,
+                    prev
+                        ? { ...prev, [stateField]: normalized !== null }
+                        : null,
                 );
                 return true;
             } catch {

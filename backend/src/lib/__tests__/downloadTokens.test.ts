@@ -27,10 +27,11 @@ describe("downloadTokens", () => {
             "Client Brief.pdf",
         );
         const verified = verifyDownload(token);
-        expect(verified).toEqual({
-            path: "documents/u123/d456/source.pdf",
-            filename: "Client Brief.pdf",
-        });
+        expect(verified?.path).toBe("documents/u123/d456/source.pdf");
+        expect(verified?.filename).toBe("Client Brief.pdf");
+        expect(typeof verified?.iat).toBe("number");
+        const now = Math.floor(Date.now() / 1000);
+        expect(Math.abs((verified?.iat ?? 0) - now)).toBeLessThan(5);
     });
 
     it("preserves unicode filenames", () => {
@@ -99,23 +100,57 @@ describe("downloadTokens", () => {
         const url = buildDownloadUrl("documents/a/b/source.pdf", "x.pdf");
         expect(url.startsWith("/download/")).toBe(true);
         const token = url.slice("/download/".length);
-        expect(verifyDownload(token)).toEqual({
-            path: "documents/a/b/source.pdf",
-            filename: "x.pdf",
-        });
+        const verified = verifyDownload(token);
+        expect(verified?.path).toBe("documents/a/b/source.pdf");
+        expect(verified?.filename).toBe("x.pdf");
     });
 
     it("falls back to SUPABASE_SECRET_KEY when DOWNLOAD_SIGNING_SECRET is unset", () => {
-        // Documents the current fallback chain. Phase 1 of the encryption
-        // remediation removes the "dev-secret" final fallback and makes
-        // DOWNLOAD_SIGNING_SECRET mandatory; this test will then split into
-        // "uses SUPABASE_SECRET_KEY" + "throws when neither is set".
         delete process.env.DOWNLOAD_SIGNING_SECRET;
         process.env.SUPABASE_SECRET_KEY = "supabase-fallback";
         const token = signDownload("documents/a/b/source.pdf", "x.pdf");
-        expect(verifyDownload(token)).toEqual({
-            path: "documents/a/b/source.pdf",
-            filename: "x.pdf",
-        });
+        const verified = verifyDownload(token);
+        expect(verified?.path).toBe("documents/a/b/source.pdf");
+        expect(verified?.filename).toBe("x.pdf");
+    });
+
+    it("throws when neither DOWNLOAD_SIGNING_SECRET nor SUPABASE_SECRET_KEY is set", () => {
+        // Removing the previous "dev-secret" fallback closes a foot-gun
+        // where forgetting to configure the env in production left the app
+        // signing tokens with a public well-known string.
+        delete process.env.DOWNLOAD_SIGNING_SECRET;
+        delete process.env.SUPABASE_SECRET_KEY;
+        expect(() =>
+            signDownload("documents/a/b/source.pdf", "x.pdf"),
+        ).toThrow(/DOWNLOAD_SIGNING_SECRET/);
+    });
+
+    it("verifies a legacy token (no iat) signed with the same secret", () => {
+        // Tokens minted before the iat-payload upgrade must keep working —
+        // chat history persists tokens forever.
+        const enc = Buffer.from(
+            JSON.stringify({
+                p: "documents/u/d/source.pdf",
+                f: "legacy.pdf",
+            }),
+            "utf8",
+        )
+            .toString("base64")
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=+$/g, "");
+        const crypto = require("node:crypto");
+        const sig = crypto
+            .createHmac("sha256", "unit-test-secret-A")
+            .update(enc)
+            .digest()
+            .toString("base64")
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=+$/g, "");
+        const verified = verifyDownload(`${enc}.${sig}`);
+        expect(verified?.path).toBe("documents/u/d/source.pdf");
+        expect(verified?.filename).toBe("legacy.pdf");
+        expect(verified?.iat).toBeUndefined();
     });
 });
