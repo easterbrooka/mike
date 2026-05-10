@@ -84,8 +84,9 @@ R2_REGION=us-east-1
 R2_ENDPOINT_URL=http://127.0.0.1:9000
 R2_ACCESS_KEY_ID=stagingaccesskey
 R2_SECRET_ACCESS_KEY=stagingsecretkey
-# Leave KMS_KEY_ID unset → falls back to SSE-S3 (AES256), which MinIO
-# supports out of the box. SSE-KMS testing needs a real AWS account.
+# Leave KMS_KEY_ID unset → falls back to SSE-S3 (AES256). The compose
+# file sets MINIO_KMS_SECRET_KEY so MinIO honours SSE-S3; full SSE-KMS
+# (with audit logs) needs a real AWS KMS key and is out of scope here.
 # KMS_KEY_ID=
 
 # ---- LLM providers (add your own keys for full chat testing) ----
@@ -149,7 +150,7 @@ cmd_smoke() {
   local status_body
   status_body="$(curl -fsS -H "$auth" "$backend/user/api-keys/status")"
   echo "$status_body" | jq .
-  if echo "$status_body" | jq -e '.claude_api_key, .gemini_api_key' >/dev/null 2>&1; then
+  if echo "$status_body" | jq -e 'has("claude_api_key") or has("gemini_api_key")' >/dev/null 2>&1; then
     echo "FAIL: response leaked an *_api_key field" >&2
     exit 1
   fi
