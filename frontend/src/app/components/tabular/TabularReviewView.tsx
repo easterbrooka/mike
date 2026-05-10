@@ -88,8 +88,8 @@ export function TRView({ reviewId, projectId }: Props) {
     const router = useRouter();
     const { profile, systemProviders } = useUserProfile();
     const apiKeys = {
-        claudeApiKey: profile?.claudeApiKey ?? null,
-        geminiApiKey: profile?.geminiApiKey ?? null,
+        claudeKeyConfigured: profile?.claudeKeyConfigured ?? false,
+        geminiKeyConfigured: profile?.geminiKeyConfigured ?? false,
     };
     const tabularModel = profile?.tabularModel ?? "gemini-3-flash-preview";
 

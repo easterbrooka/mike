@@ -8,6 +8,7 @@ import React, {
     ReactNode,
 } from "react";
 import { supabase } from "@/lib/supabase";
+import { apiBase } from "@/app/lib/apiBase";
 
 interface User {
     id: string;
@@ -29,9 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         const ensureProfile = async (accessToken: string) => {
-            const apiBase =
-                process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
-            await fetch(`${apiBase}/user/profile`, {
+            await fetch(`${apiBase()}/user/profile`, {
                 method: "POST",
                 headers: { Authorization: `Bearer ${accessToken}` },
             }).catch((e) => {

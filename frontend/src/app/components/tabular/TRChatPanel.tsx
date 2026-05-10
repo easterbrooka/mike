@@ -453,7 +453,7 @@ function TRChatInput({
     onCancel: () => void;
     model: string;
     onModelChange: (id: string) => void;
-    apiKeys: { claudeApiKey: string | null; geminiApiKey: string | null };
+    apiKeys: { claudeKeyConfigured: boolean; geminiKeyConfigured: boolean };
 }) {
     const [value, setValue] = useState("");
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -608,8 +608,8 @@ export function TRChatPanel({
 }: Props) {
     const { profile, systemProviders, updateModelPreference } = useUserProfile();
     const apiKeys = {
-        claudeApiKey: profile?.claudeApiKey ?? null,
-        geminiApiKey: profile?.geminiApiKey ?? null,
+        claudeKeyConfigured: profile?.claudeKeyConfigured ?? false,
+        geminiKeyConfigured: profile?.geminiKeyConfigured ?? false,
     };
     const currentModel = profile?.tabularModel ?? "gemini-3-flash-preview";
     const [apiKeyModalProvider, setApiKeyModalProvider] =

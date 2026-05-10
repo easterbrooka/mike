@@ -1,0 +1,45 @@
+# MinIO is the S3-compatible store used by the staging env. It's the
+# easiest way to exercise the SSE-on-PutObject code path without a real
+# AWS account. MinIO will reject *any* SSE-flagged PutObject unless an
+# internal KMS key is configured, even for SSE-S3 (AES256) — that's why
+# MINIO_KMS_SECRET_KEY is set below. The full SSE-KMS flavour with audit
+# logs needs the KES sidecar and is out of scope for this lightweight env.
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: mike-staging-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: stagingaccesskey
+      MINIO_ROOT_PASSWORD: stagingsecretkey
+      # Static dev key — checked in deliberately. Only protects MinIO's
+      # on-disk data in the throwaway staging volume; never reused in prod.
+      MINIO_KMS_SECRET_KEY: "mike-staging-key:bWlrZS1zdGFnaW5nLWtleS1kby1ub3QtdXNlLXByb2Q="
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  minio-init:
+    # Creates the bucket once minio is healthy, then exits. Re-running
+    # `up` is idempotent because mc mb errors out gracefully on duplicates.
+    image: minio/mc:latest
+    container_name: mike-staging-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 stagingaccesskey stagingsecretkey &&
+        (mc mb --ignore-existing local/mike) &&
+        echo 'staging bucket ready'
+      "
+
+volumes:
+  minio-data:

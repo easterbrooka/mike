@@ -10,6 +10,11 @@ import type {
 } from "./types";
 import { toClaudeTools } from "./tools";
 
+// Raw-stream debug logging is opt-in only. Stream events contain the user's
+// prompt and document text verbatim, so default-on logging would persist
+// client content to disk — exactly the breach surface this branch is
+// closing. Set LOG_LLM_RAW=1 in a developer's .env.local to re-enable.
+const RAW_STREAM_LOGGING_ENABLED = process.env.LOG_LLM_RAW === "1";
 const RAW_STREAM_LOG_PATH = path.resolve(
     process.cwd(),
     "claude-raw-stream.log",
@@ -80,11 +85,13 @@ export async function streamClaude(
 
         let sawThinking = false;
 
-        stream.on("streamEvent", (event) => {
-            const line = JSON.stringify(event);
-            console.log("[claude raw stream]", line);
-            fs.appendFile(RAW_STREAM_LOG_PATH, line + "\n", () => {});
-        });
+        if (RAW_STREAM_LOGGING_ENABLED) {
+            stream.on("streamEvent", (event) => {
+                const line = JSON.stringify(event);
+                console.log("[claude raw stream]", line);
+                fs.appendFile(RAW_STREAM_LOG_PATH, line + "\n", () => {});
+            });
+        }
 
         stream.on("text", (delta) => {
             callbacks.onContentDelta?.(delta);

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { MikeIcon } from "@/components/chat/mike-icon";
 import { useFetchDocxBytes } from "@/app/hooks/useFetchDocxBytes";
+import { apiBase } from "@/app/lib/apiBase";
 import { supabase } from "@/lib/supabase";
 import {
     clearDocxQuoteHighlights,
@@ -148,13 +149,11 @@ async function tagWIdsOnRenderedDom(
             data: { session },
         } = await supabase.auth.getSession();
         const token = session?.access_token;
-        const apiBase =
-            process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
         const qs = versionId
             ? `?version_id=${encodeURIComponent(versionId)}`
             : "";
         const resp = await fetch(
-            `${apiBase}/single-documents/${documentId}/tracked-change-ids${qs}`,
+            `${apiBase()}/single-documents/${documentId}/tracked-change-ids${qs}`,
             { headers: token ? { Authorization: `Bearer ${token}` } : {} },
         );
         if (!resp.ok) {

@@ -36,8 +36,8 @@ interface Props {
     value: string;
     onChange: (id: string) => void;
     apiKeys?: {
-        claudeApiKey: string | null;
-        geminiApiKey: string | null;
+        claudeKeyConfigured: boolean;
+        geminiKeyConfigured: boolean;
     };
 }
 

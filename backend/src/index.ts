@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 import { chatRouter } from "./routes/chat";
 import { projectsRouter } from "./routes/projects";
 import { projectChatRouter } from "./routes/projectChat";
@@ -18,6 +19,19 @@ const allowedOrigins = (process.env.FRONTEND_URL ?? "http://localhost:3000")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
+
+// Security headers. Most of helmet's defaults are aimed at HTML responses;
+// this is a JSON API so we keep CSP off (it has no use here and would
+// mostly produce noisy reports) but HSTS + frame/nosniff/referrer
+// protections are worth setting. HSTS is the load-bearing one — it tells
+// browsers to never speak HTTP to this origin again.
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    hsts: { maxAge: 31536000, includeSubDomains: true, preload: false },
+  }),
+);
 
 app.use(
   cors({

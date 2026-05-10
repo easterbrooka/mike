@@ -4,6 +4,7 @@
  */
 
 import { supabase } from "@/lib/supabase";
+import { apiBase } from "./apiBase";
 import type {
     AssistantEvent,
     MikeChat,
@@ -34,8 +35,7 @@ interface ServerChatDetailOut {
     messages: ServerMessage[];
 }
 
-const API_BASE =
-    process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
+const API_BASE = apiBase();
 
 async function getAuthHeader(): Promise<Record<string, string>> {
     const {

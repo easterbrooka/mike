@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AlertCircle, Check, ChevronDown, Eye, EyeOff } from "lucide-react";
+import { AlertCircle, Check, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -42,8 +42,10 @@ export default function ModelsAndApiKeysPage() {
                                 "gemini-3-flash-preview"
                             }
                             apiKeys={{
-                                claudeApiKey: profile?.claudeApiKey ?? null,
-                                geminiApiKey: profile?.geminiApiKey ?? null,
+                                claudeKeyConfigured:
+                                    profile?.claudeKeyConfigured ?? false,
+                                geminiKeyConfigured:
+                                    profile?.geminiKeyConfigured ?? false,
                             }}
                             onChange={(id) =>
                                 updateModelPreference("tabularModel", id)
@@ -70,22 +72,30 @@ export default function ModelsAndApiKeysPage() {
                     of whichever provider you&rsquo;ve configured (Gemini Flash
                     Lite if a Gemini key is set, otherwise Claude Haiku).
                 </p>
+                <p className="text-xs text-gray-400 mb-4 max-w-xl">
+                    Saved keys never leave the server, so we can&rsquo;t show
+                    you a key you&rsquo;ve already saved. Use{" "}
+                    <strong>Replace</strong> to set a new one or{" "}
+                    <strong>Clear</strong> to remove it.
+                </p>
                 <div className="space-y-4 max-w-xl">
                     <ApiKeyField
                         label="Anthropic (Claude) API Key"
                         placeholder="sk-ant-…"
-                        initialValue={profile?.claudeApiKey ?? ""}
+                        configured={profile?.claudeKeyConfigured ?? false}
                         onSave={(value) =>
                             updateApiKey("claude", value.trim() || null)
                         }
+                        onClear={() => updateApiKey("claude", null)}
                     />
                     <ApiKeyField
                         label="Google (Gemini) API Key"
                         placeholder="AI…"
-                        initialValue={profile?.geminiApiKey ?? ""}
+                        configured={profile?.geminiKeyConfigured ?? false}
                         onSave={(value) =>
                             updateApiKey("gemini", value.trim() || null)
                         }
+                        onClear={() => updateApiKey("gemini", null)}
                     />
                 </div>
             </div>
@@ -100,7 +110,7 @@ function TabularModelDropdown({
 }: {
     value: string;
     onChange: (id: string) => void;
-    apiKeys: { claudeApiKey: string | null; geminiApiKey: string | null };
+    apiKeys: { claudeKeyConfigured: boolean; geminiKeyConfigured: boolean };
 }) {
     const [isOpen, setIsOpen] = useState(false);
     const { systemProviders } = useUserProfile();
@@ -185,64 +195,103 @@ function TabularModelDropdown({
 function ApiKeyField({
     label,
     placeholder,
-    initialValue,
+    configured,
     onSave,
+    onClear,
 }: {
     label: string;
     placeholder: string;
-    initialValue: string;
+    configured: boolean;
     onSave: (value: string) => Promise<boolean>;
+    onClear: () => Promise<boolean>;
 }) {
-    const [value, setValue] = useState(initialValue);
-    const [reveal, setReveal] = useState(false);
+    // When configured, hide the input behind a "•••• Configured" pill until
+    // the user clicks Replace. We never have the key string to populate the
+    // input with — it's stored only on the backend.
+    const [editing, setEditing] = useState(!configured);
+    const [value, setValue] = useState("");
     const [isSaving, setIsSaving] = useState(false);
     const [saved, setSaved] = useState(false);
 
     useEffect(() => {
-        setValue(initialValue);
-    }, [initialValue]);
+        // If the configured status flips externally (e.g. another tab saved
+        // a key), reset the editing UI accordingly.
+        setEditing(!configured);
+        if (configured) setValue("");
+    }, [configured]);
 
-    const dirty = value !== initialValue;
+    const dirty = value.trim().length > 0;
 
     const handleSave = async () => {
+        if (!dirty) return;
         setIsSaving(true);
         const ok = await onSave(value);
         setIsSaving(false);
         if (ok) {
             setSaved(true);
+            setValue("");
+            setEditing(false);
             setTimeout(() => setSaved(false), 2000);
         } else {
             alert(`Failed to save ${label}.`);
         }
     };
 
+    const handleClear = async () => {
+        const ok = await onClear();
+        if (ok) {
+            setEditing(true);
+            setValue("");
+        } else {
+            alert(`Failed to clear ${label}.`);
+        }
+    };
+
+    if (!editing) {
+        return (
+            <div>
+                <label className="text-sm text-gray-600 block mb-2">
+                    {label}
+                </label>
+                <div className="flex gap-2 items-center">
+                    <div className="flex-1 px-3 h-9 rounded-md border border-gray-300 bg-gray-50 text-sm text-gray-500 flex items-center gap-2">
+                        <Check className="h-3.5 w-3.5 text-green-600" />
+                        <span className="truncate">
+                            Configured. Saved server-side.
+                        </span>
+                    </div>
+                    <Button
+                        type="button"
+                        onClick={() => setEditing(true)}
+                        variant="outline"
+                    >
+                        Replace
+                    </Button>
+                    <Button
+                        type="button"
+                        onClick={handleClear}
+                        variant="outline"
+                    >
+                        Clear
+                    </Button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div>
             <label className="text-sm text-gray-600 block mb-2">{label}</label>
             <div className="flex gap-2">
-                <div className="relative flex-1">
-                    <Input
-                        type={reveal ? "text" : "password"}
-                        value={value}
-                        onChange={(e) => setValue(e.target.value)}
-                        placeholder={placeholder}
-                        className="pr-10"
-                        autoComplete="off"
-                        spellCheck={false}
-                    />
-                    <button
-                        type="button"
-                        onClick={() => setReveal((r) => !r)}
-                        className="absolute inset-y-0 right-2 flex items-center text-gray-400 hover:text-gray-600"
-                        aria-label={reveal ? "Hide key" : "Show key"}
-                    >
-                        {reveal ? (
-                            <EyeOff className="h-4 w-4" />
-                        ) : (
-                            <Eye className="h-4 w-4" />
-                        )}
-                    </button>
-                </div>
+                <Input
+                    type="password"
+                    value={value}
+                    onChange={(e) => setValue(e.target.value)}
+                    placeholder={placeholder}
+                    className="flex-1"
+                    autoComplete="off"
+                    spellCheck={false}
+                />
                 <Button
                     onClick={handleSave}
                     disabled={isSaving || !dirty || saved}
@@ -259,6 +308,18 @@ function ApiKeyField({
                         "Save"
                     )}
                 </Button>
+                {configured && (
+                    <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                            setEditing(false);
+                            setValue("");
+                        }}
+                    >
+                        Cancel
+                    </Button>
+                )}
             </div>
         </div>
     );
