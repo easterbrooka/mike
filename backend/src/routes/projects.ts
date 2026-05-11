@@ -9,10 +9,20 @@ import {
 import { downloadFile, uploadFile, storageKey } from "../lib/storage";
 import { docxToPdf, convertedPdfKey } from "../lib/convert";
 import { checkProjectAccess } from "../lib/access";
-import { singleFileUpload } from "../lib/upload";
+import { contentTypeForSuffix, singleFileUpload } from "../lib/upload";
+import { extractTxt } from "../lib/extract/txt";
+import { extractEml } from "../lib/extract/eml";
+import { extractXlsx } from "../lib/extract/xlsx";
 
 export const projectsRouter = Router();
-const ALLOWED_TYPES = new Set(["pdf", "docx", "doc"]);
+const ALLOWED_TYPES = new Set([
+  "pdf",
+  "docx",
+  "doc",
+  "txt",
+  "eml",
+  "xlsx",
+]);
 
 // GET /projects
 projectsRouter.get("/", requireAuth, async (req, res) => {
@@ -387,10 +397,7 @@ projectsRouter.post(
               .json({ detail: "Failed to read source document bytes" });
           }
           const newKey = storageKey(userId, copy.id as string, doc.filename);
-          const contentType =
-            doc.file_type === "pdf"
-              ? "application/pdf"
-              : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+          const contentType = contentTypeForSuffix(doc.file_type as string);
           await uploadFile(newKey, srcBytes, contentType);
 
           // PDFs share one object for source + display rendition. DOCX
@@ -601,7 +608,7 @@ export async function handleDocumentUpload(
     return void res
       .status(400)
       .json({
-        detail: `Unsupported file type: ${suffix}. Allowed: pdf, docx, doc`,
+        detail: `Unsupported file type: ${suffix}. Allowed: ${Array.from(ALLOWED_TYPES).join(", ")}`,
       });
 
   const content = file.buffer;
@@ -626,10 +633,7 @@ export async function handleDocumentUpload(
   try {
     const docId = doc.id as string;
     const key = storageKey(userId, docId, filename);
-    const contentType =
-      suffix === "pdf"
-        ? "application/pdf"
-        : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    const contentType = contentTypeForSuffix(suffix);
     await uploadFile(
       key,
       content.buffer.slice(
@@ -778,6 +782,39 @@ async function extractStructureTree(
         page_number: i + 1,
         children: [],
       }));
+    } else if (fileType === "txt") {
+      const text = extractTxt(content);
+      const lines = text.split("\n").filter((l) => l.trim());
+      const nodes = lines.slice(0, 30).map((line, i) => ({
+        id: `h1-${i}`,
+        title: line.slice(0, 100),
+        level: 1,
+        page_number: null,
+        children: [],
+      }));
+      return nodes.length ? nodes : null;
+    } else if (fileType === "eml") {
+      const eml = await extractEml(content);
+      if (!eml.subject) return null;
+      return [
+        {
+          id: "h1-0",
+          title: eml.subject.slice(0, 100),
+          level: 1,
+          page_number: null,
+          children: [],
+        },
+      ];
+    } else if (fileType === "xlsx") {
+      const workbook = await extractXlsx(content);
+      const nodes = workbook.sheets.map((s, i) => ({
+        id: `h1-${i}`,
+        title: s.name,
+        level: 1,
+        page_number: null,
+        children: [],
+      }));
+      return nodes.length ? nodes : null;
     } else {
       const mammoth = await import("mammoth");
       const result = await mammoth.extractRawText({

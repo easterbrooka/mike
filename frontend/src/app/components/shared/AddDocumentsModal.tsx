@@ -264,7 +264,7 @@ export function AddDocumentsModal({
                         <input
                             ref={fileInputRef}
                             type="file"
-                            accept=".pdf,.docx,.doc"
+                            accept=".pdf,.docx,.doc,.txt,.eml,.xlsx"
                             multiple
                             className="hidden"
                             onChange={handleUpload}

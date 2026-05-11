@@ -21,6 +21,9 @@ import {
     type LlmMessage,
     type OpenAIToolSchema,
 } from "./llm";
+import { extractTxt, txtToLLMText } from "./extract/txt";
+import { extractEml, emlToLLMText } from "./extract/eml";
+import { extractXlsx, xlsxToLLMText } from "./extract/xlsx";
 
 const STANDARD_FONT_DATA_URL = (() => {
     try {
@@ -1249,6 +1252,23 @@ async function readDocumentContent(
                     `[read_document] docx mammoth fallback length=${text.length} for filename="${docInfo.filename}"`,
                 );
             }
+        } else if (docInfo.file_type === "txt") {
+            text = txtToLLMText(extractTxt(raw));
+            console.log(
+                `[read_document] txt length=${text.length} for filename="${docInfo.filename}"`,
+            );
+        } else if (docInfo.file_type === "eml") {
+            const eml = await extractEml(raw);
+            text = emlToLLMText(eml);
+            console.log(
+                `[read_document] eml length=${text.length} attachments=${eml.attachments.length} for filename="${docInfo.filename}"`,
+            );
+        } else if (docInfo.file_type === "xlsx") {
+            const workbook = await extractXlsx(raw);
+            text = xlsxToLLMText(workbook);
+            console.log(
+                `[read_document] xlsx length=${text.length} sheets=${workbook.sheets.length} for filename="${docInfo.filename}"`,
+            );
         } else {
             console.log(
                 `[read_document] unknown file_type="${docInfo.file_type}" for filename="${docInfo.filename}", trying mammoth`,
