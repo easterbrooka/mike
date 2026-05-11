@@ -20,3 +20,6 @@ coverage
 HANDOFF.md
 handoff.md
 *-handoff.md
+
+.mcp.json
+.claude/
