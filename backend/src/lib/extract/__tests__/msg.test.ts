@@ -1,14 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
 const mockGetFileData = vi.hoisted(() => vi.fn());
+const mockGetAttachment = vi.hoisted(() => vi.fn());
 
 vi.mock("@kenjiuno/msgreader", () => ({
     default: vi.fn().mockImplementation(() => ({
         getFileData: mockGetFileData,
+        getAttachment: mockGetAttachment,
     })),
 }));
 
-import { extractMsg } from "../msg";
+import { extractMsg, extractMsgForLLM } from "../msg";
 
 function emptyBuf(): ArrayBuffer {
     return new ArrayBuffer(0);
@@ -89,5 +91,75 @@ describe("extractMsg", () => {
             messageDeliveryTime: "not a date",
         });
         expect((await extractMsg(emptyBuf())).date).toBeNull();
+    });
+});
+
+describe("extractMsgForLLM", () => {
+    it("inlines a .txt attachment's text via getAttachment(idx)", async () => {
+        mockGetFileData.mockReturnValue({
+            subject: "Hi",
+            senderEmail: "a@x.com",
+            body: "Please see attached.",
+            attachments: [
+                { fileName: "memo.txt", attachMimeTag: "text/plain" },
+            ],
+        });
+        mockGetAttachment.mockReturnValue({
+            fileName: "memo.txt",
+            content: new TextEncoder().encode("Inline memo contents."),
+        });
+        const out = await extractMsgForLLM(emptyBuf());
+        expect(out).toContain("Please see attached.");
+        expect(out).toContain("--- Attachment: memo.txt ---");
+        expect(out).toContain("Inline memo contents.");
+    });
+
+    it("skips a .png attachment but keeps it on the summary line", async () => {
+        mockGetFileData.mockReturnValue({
+            subject: "With image",
+            body: "see logo",
+            attachments: [
+                { fileName: "logo.png", attachMimeTag: "image/png" },
+            ],
+        });
+        mockGetAttachment.mockReturnValue({
+            fileName: "logo.png",
+            content: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
+        });
+        const out = await extractMsgForLLM(emptyBuf());
+        expect(out).toMatch(/\[Attachments: logo\.png\]/);
+        expect(out).not.toContain("--- Attachment: logo.png ---");
+    });
+
+    it("does not throw when there are no attachments", async () => {
+        mockGetFileData.mockReturnValue({
+            subject: "Plain",
+            body: "no attachments here",
+        });
+        const out = await extractMsgForLLM(emptyBuf());
+        expect(out).toContain("no attachments here");
+        expect(out).not.toContain("--- Attachment:");
+    });
+
+    it("survives a getAttachment() failure for one attachment without dropping siblings", async () => {
+        mockGetFileData.mockReturnValue({
+            attachments: [
+                { fileName: "bad.txt", attachMimeTag: "text/plain" },
+                { fileName: "good.txt", attachMimeTag: "text/plain" },
+            ],
+        });
+        let call = 0;
+        mockGetAttachment.mockImplementation(() => {
+            call += 1;
+            if (call === 1) throw new Error("simulated inner-msg failure");
+            return {
+                fileName: "good.txt",
+                content: new TextEncoder().encode("Sibling survived."),
+            };
+        });
+        const out = await extractMsgForLLM(emptyBuf());
+        expect(out).not.toContain("--- Attachment: bad.txt ---");
+        expect(out).toContain("--- Attachment: good.txt ---");
+        expect(out).toContain("Sibling survived.");
     });
 });
