@@ -12,6 +12,7 @@ export const SUPPORTED_DOC_TYPES = [
   "doc",
   "txt",
   "eml",
+  "msg",
   "xlsx",
 ] as const;
 export type SupportedDocType = (typeof SUPPORTED_DOC_TYPES)[number];
@@ -24,6 +25,8 @@ export function contentTypeForSuffix(suffix: string): string {
       return "text/plain; charset=utf-8";
     case "eml":
       return "message/rfc822";
+    case "msg":
+      return "application/vnd.ms-outlook";
     case "xlsx":
       return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     case "docx":

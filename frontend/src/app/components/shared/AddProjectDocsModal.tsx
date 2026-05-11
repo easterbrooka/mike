@@ -253,7 +253,7 @@ export function AddProjectDocsModal({
                         <input
                             ref={fileInputRef}
                             type="file"
-                            accept=".pdf,.docx,.doc,.txt,.eml,.xlsx"
+                            accept=".pdf,.docx,.doc,.txt,.eml,.msg,.xlsx"
                             multiple
                             className="hidden"
                             onChange={handleUpload}

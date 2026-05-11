@@ -12,6 +12,7 @@ import { checkProjectAccess } from "../lib/access";
 import { contentTypeForSuffix, singleFileUpload } from "../lib/upload";
 import { extractTxt } from "../lib/extract/txt";
 import { extractEml } from "../lib/extract/eml";
+import { extractMsg } from "../lib/extract/msg";
 import { extractXlsx } from "../lib/extract/xlsx";
 
 export const projectsRouter = Router();
@@ -793,13 +794,14 @@ async function extractStructureTree(
         children: [],
       }));
       return nodes.length ? nodes : null;
-    } else if (fileType === "eml") {
-      const eml = await extractEml(content);
-      if (!eml.subject) return null;
+    } else if (fileType === "eml" || fileType === "msg") {
+      const parsed =
+        fileType === "msg" ? await extractMsg(content) : await extractEml(content);
+      if (!parsed.subject) return null;
       return [
         {
           id: "h1-0",
-          title: eml.subject.slice(0, 100),
+          title: parsed.subject.slice(0, 100),
           level: 1,
           page_number: null,
           children: [],
