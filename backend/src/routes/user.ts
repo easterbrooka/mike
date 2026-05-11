@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { createServerSupabase } from "../lib/supabase";
+import { bufferToBytea, getTenantCrypto } from "../lib/crypto/migrate";
 
 export const userRouter = Router();
 
@@ -30,15 +31,17 @@ userRouter.get("/api-keys/status", requireAuth, async (_req, res) => {
   const db = createServerSupabase();
   const { data, error } = await db
     .from("user_profiles")
-    .select("claude_api_key, gemini_api_key")
+    .select(
+      "claude_api_key, gemini_api_key, claude_api_key_ct, gemini_api_key_ct",
+    )
     .eq("user_id", userId)
     .maybeSingle();
   if (error) return void res.status(500).json({ detail: error.message });
-  const claude = (data?.claude_api_key as string | null | undefined)?.trim();
-  const gemini = (data?.gemini_api_key as string | null | undefined)?.trim();
+  const claudePt = (data?.claude_api_key as string | null | undefined)?.trim();
+  const geminiPt = (data?.gemini_api_key as string | null | undefined)?.trim();
   res.json({
-    claude: Boolean(claude),
-    gemini: Boolean(gemini),
+    claude: Boolean(claudePt || data?.claude_api_key_ct),
+    gemini: Boolean(geminiPt || data?.gemini_api_key_ct),
   });
 });
 
@@ -68,11 +71,21 @@ userRouter.put("/api-keys/:provider", requireAuth, async (req, res) => {
     });
   }
   const dbField = provider === "claude" ? "claude_api_key" : "gemini_api_key";
+  const ctField = `${dbField}_ct`;
+  // Dual-write: seal the value under the user's DEK and write to BOTH the
+  // plaintext column (for rollback safety during the cutover soak) and the
+  // ciphertext column. A clear (value === null) zeroes both columns.
+  // bufferToBytea is required: supabase-js JSON.stringify-s the body and a
+  // raw Buffer would serialise to `{"type":"Buffer",...}` which bytea rejects.
+  const sealed = value === null
+    ? null
+    : bufferToBytea(await getTenantCrypto().sealForUser(userId, value));
   const db = createServerSupabase();
   const { error } = await db
     .from("user_profiles")
     .update({
       [dbField]: value,
+      [ctField]: sealed,
       updated_at: new Date().toISOString(),
     })
     .eq("user_id", userId);

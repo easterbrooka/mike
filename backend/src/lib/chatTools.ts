@@ -24,6 +24,8 @@ import {
 import { extractTxt, txtToLLMText } from "./extract/txt";
 import { extractEml, emlToLLMText } from "./extract/eml";
 import { extractXlsx, xlsxToLLMText } from "./extract/xlsx";
+import { bufferToBytea } from "./crypto/migrate";
+import { emailIndex } from "./crypto/searchable";
 
 const STANDARD_FONT_DATA_URL = (() => {
     try {
@@ -2839,7 +2841,7 @@ export async function buildWorkflowStore(
         const { data: shares } = await db
             .from("workflow_shares")
             .select("workflow_id")
-            .eq("shared_with_email", normalizedUserEmail);
+            .eq("shared_with_email_hmac", bufferToBytea(emailIndex(normalizedUserEmail)));
         const sharedIds = [...new Set((shares ?? []).map((share) => share.workflow_id))];
         if (sharedIds.length > 0) {
             const { data: sharedWorkflows } = await db

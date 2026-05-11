@@ -2,6 +2,12 @@ import { Router } from "express";
 import { createClient } from "@supabase/supabase-js";
 import { requireAuth } from "../middleware/auth";
 import { createServerSupabase } from "../lib/supabase";
+import {
+  bufferToBytea,
+  byteaToBuffer,
+  getTenantCrypto,
+} from "../lib/crypto/migrate";
+import { emailIndex } from "../lib/crypto/searchable";
 
 function getAdminClient() {
   return createClient(
@@ -66,7 +72,7 @@ async function resolveWorkflowAccess(
     .from("workflow_shares")
     .select("allow_edit")
     .eq("workflow_id", workflowId)
-    .eq("shared_with_email", normalizedUserEmail)
+    .eq("shared_with_email_hmac", bufferToBytea(emailIndex(normalizedUserEmail)))
     .maybeSingle();
   if (!share) return null;
 
@@ -96,7 +102,7 @@ workflowsRouter.get("/", requireAuth, async (req, res) => {
   const { data: shares } = await db
     .from("workflow_shares")
     .select("workflow_id, shared_by_user_id, allow_edit")
-    .eq("shared_with_email", normalizedUserEmail);
+    .eq("shared_with_email_hmac", bufferToBytea(emailIndex(normalizedUserEmail)));
 
   let sharedWorkflows: Record<string, unknown>[] = [];
   if (shares && shares.length > 0) {
@@ -305,12 +311,33 @@ workflowsRouter.get("/:workflowId/shares", requireAuth, async (req, res) => {
 
   const { data: shares, error } = await db
     .from("workflow_shares")
-    .select("id, shared_with_email, allow_edit, created_at")
+    .select(
+      "id, shared_with_email, shared_with_email_ct, allow_edit, created_at",
+    )
     .eq("workflow_id", workflowId)
     .order("created_at", { ascending: true });
   if (error) return void res.status(500).json({ detail: error.message });
 
-  res.json(shares ?? []);
+  // Dual-read: prefer the encrypted column; fall back to the legacy plaintext
+  // column for any rows that haven't been backfilled yet. The response shape
+  // stays the same — only `shared_with_email` is exposed to the client.
+  const tc = getTenantCrypto();
+  const decrypted = await Promise.all(
+    (shares ?? []).map(async (s) => {
+      let email = s.shared_with_email as string | null;
+      if (s.shared_with_email_ct) {
+        email = await tc.open(byteaToBuffer(s.shared_with_email_ct));
+      }
+      return {
+        id: s.id,
+        shared_with_email: email,
+        allow_edit: s.allow_edit,
+        created_at: s.created_at,
+      };
+    }),
+  );
+
+  res.json(decrypted);
 });
 
 // DELETE /workflows/:workflowId/shares/:shareId
@@ -350,17 +377,30 @@ workflowsRouter.post("/:workflowId/share", requireAuth, async (req, res) => {
     .single();
   if (!wf) return void res.status(404).json({ detail: "Workflow not found or not editable" });
 
-  const rows = emails.map((email: string) => ({
-    workflow_id: workflowId,
-    shared_by_user_id: userId,
-    shared_with_email: email.trim().toLowerCase(),
-    allow_edit: allow_edit ?? false,
-  }));
-  // Upsert on (workflow_id, shared_with_email) so re-sharing to the same
-  // person updates the existing row instead of stacking duplicates.
+  // Dual-write: write plaintext (legacy column, kept for rollback safety),
+  // ciphertext (sealed under the sharer's DEK), and the HMAC index used by
+  // the share-by-email lookup path. The upsert is keyed on the HMAC index;
+  // the legacy (workflow_id, shared_with_email) unique constraint still
+  // exists but aligns 1:1 with the HMAC (HMAC is deterministic over the
+  // normalised email).
+  const tc = getTenantCrypto();
+  const rows = await Promise.all(
+    emails.map(async (email: string) => {
+      const normalized = email.trim().toLowerCase();
+      const sealed = await tc.sealForUser(userId, normalized);
+      return {
+        workflow_id: workflowId,
+        shared_by_user_id: userId,
+        shared_with_email: normalized,
+        shared_with_email_ct: bufferToBytea(sealed),
+        shared_with_email_hmac: bufferToBytea(emailIndex(normalized)),
+        allow_edit: allow_edit ?? false,
+      };
+    }),
+  );
   const { error } = await db
     .from("workflow_shares")
-    .upsert(rows, { onConflict: "workflow_id,shared_with_email" });
+    .upsert(rows, { onConflict: "workflow_id,shared_with_email_hmac" });
   if (error) return void res.status(500).json({ detail: error.message });
 
   res.status(204).send();
