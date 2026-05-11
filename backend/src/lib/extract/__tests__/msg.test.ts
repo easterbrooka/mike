@@ -145,6 +145,89 @@ describe("extractMsg body fallback", () => {
         await extractMsg(emptyBuf());
         expect(mockRtfToText).not.toHaveBeenCalled();
     });
+
+    it("falls back to PidTagHtml (Uint8Array) when body/bodyHtml/compressedRtf are all empty", async () => {
+        mockRtfToText.mockReturnValue("");
+        const htmlBytes = new TextEncoder().encode(
+            "<p>Greetings <strong>everyone</strong></p>",
+        );
+        mockGetFileData.mockReturnValue({
+            html: htmlBytes,
+            internetCodepage: 65001,
+        });
+        const out = await extractMsg(emptyBuf());
+        expect(out.text).toContain("Greetings everyone");
+        expect(out.text).not.toContain("<p>");
+        expect(out.text).not.toContain("<strong>");
+    });
+
+    it("decodes PidTagHtml using internetCodepage when it's not UTF-8", async () => {
+        // Windows-1252 byte 0x96 = en-dash. UTF-8 decode would render U+FFFD.
+        const win1252Bytes = new Uint8Array([
+            0x68, 0x69, 0x20, 0x96, 0x20, 0x62, 0x79, 0x65,
+        ]); // "hi – bye"
+        mockGetFileData.mockReturnValue({
+            html: win1252Bytes,
+            internetCodepage: 1252,
+        });
+        const out = await extractMsg(emptyBuf());
+        expect(out.text).toContain("hi – bye");
+    });
+
+    it("falls back to preview when html is also missing", async () => {
+        mockRtfToText.mockReturnValue("");
+        mockGetFileData.mockReturnValue({
+            preview: "Truncated preview text from PR_BODY_PREVIEW",
+        });
+        const out = await extractMsg(emptyBuf());
+        expect(out.text).toBe("Truncated preview text from PR_BODY_PREVIEW");
+    });
+});
+
+describe("extractMsg sender + recipient SMTP preference", () => {
+    it("prefers senderSmtpAddress over the LDAP-style senderEmail", async () => {
+        mockGetFileData.mockReturnValue({
+            senderName: "Tarryn Andrews",
+            senderEmail: "/O=EXCHANGELABS/OU=...",
+            senderSmtpAddress: "ta@example.com",
+        });
+        expect((await extractMsg(emptyBuf())).from).toBe(
+            "Tarryn Andrews <ta@example.com>",
+        );
+    });
+
+    it("falls back to creatorSMTPAddress when senderSmtpAddress is missing", async () => {
+        mockGetFileData.mockReturnValue({
+            senderName: "Author",
+            senderEmail: "/O=EXCHANGELABS/...",
+            creatorSMTPAddress: "creator@example.com",
+        });
+        expect((await extractMsg(emptyBuf())).from).toBe(
+            "Author <creator@example.com>",
+        );
+    });
+
+    it("prefers recipient.smtpAddress over recipient.email for internal recipients", async () => {
+        mockGetFileData.mockReturnValue({
+            recipients: [
+                {
+                    name: "External",
+                    email: "external@xtra.co.nz",
+                    recipType: "to",
+                },
+                {
+                    name: "Internal",
+                    email: "/o=ExchangeLabs/ou=.../cn=Andrew East",
+                    smtpAddress: "Andrew.Easterbrook@wrmk.co.nz",
+                    recipType: "to",
+                },
+            ],
+        });
+        const out = await extractMsg(emptyBuf());
+        expect(out.to).toBe(
+            'External <external@xtra.co.nz>, Internal <Andrew.Easterbrook@wrmk.co.nz>',
+        );
+    });
 });
 
 describe("extractMsg inner-msg attachment detection", () => {
