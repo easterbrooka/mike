@@ -11,6 +11,19 @@ import { workflowsRouter } from "./routes/workflows";
 import { userRouter } from "./routes/user";
 import { downloadsRouter } from "./routes/downloads";
 import { systemRouter } from "./routes/system";
+import { assertKmsConfigured } from "./lib/crypto/kms";
+
+// Fail fast in production if the envelope-encryption inputs are missing —
+// otherwise the first request that needs to seal/open ciphertext would
+// surface the misconfiguration as a 500 instead of a startup error.
+if (process.env.NODE_ENV === "production") {
+  assertKmsConfigured();
+  if (!process.env.EMAIL_HMAC_PEPPER) {
+    throw new Error(
+      "EMAIL_HMAC_PEPPER must be set in production (32 bytes hex from Secrets Manager mike/email-hmac-pepper)",
+    );
+  }
+}
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;

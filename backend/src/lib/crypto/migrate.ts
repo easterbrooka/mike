@@ -18,6 +18,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { createServerSupabase } from "../supabase";
 import { open as aeadOpen, seal as aeadSeal } from "./aead";
 import { generateDek as kmsGenerateDek, unwrapDek } from "./kms";
 
@@ -47,7 +48,7 @@ interface DekRow {
  * Convert a Supabase-returned bytea string into a Node Buffer.
  * Supabase serialises bytea as a `\x`-prefixed hex string by default.
  */
-function byteaToBuffer(s: unknown): Buffer {
+export function byteaToBuffer(s: unknown): Buffer {
     if (typeof s !== "string") {
         throw new Error(`byteaToBuffer: expected string, got ${typeof s}`);
     }
@@ -159,6 +160,21 @@ export function tenantCrypto(db: SupabaseClient): TenantCrypto {
             return out.toString("utf8");
         },
     };
+}
+
+/**
+ * Process-wide TenantCrypto singleton. The dek cache lives in the closure
+ * inside `tenantCrypto(db)`, so call sites must share one instance to amortise
+ * KMS Decrypt calls across requests. Tests bypass this and instantiate
+ * `tenantCrypto(fakeDb)` directly.
+ */
+let cachedTenantCrypto: TenantCrypto | null = null;
+
+export function getTenantCrypto(): TenantCrypto {
+    if (!cachedTenantCrypto) {
+        cachedTenantCrypto = tenantCrypto(createServerSupabase());
+    }
+    return cachedTenantCrypto;
 }
 
 /**

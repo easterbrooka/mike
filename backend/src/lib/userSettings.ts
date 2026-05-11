@@ -1,4 +1,5 @@
 import { createServerSupabase } from "./supabase";
+import { byteaToBuffer, getTenantCrypto } from "./crypto/migrate";
 import {
     resolveModel,
     DEFAULT_TITLE_MODEL,
@@ -22,6 +23,22 @@ function resolveTitleModel(apiKeys: UserApiKeys): string {
     return DEFAULT_TITLE_MODEL;
 }
 
+// Dual-read: prefer the envelope-encrypted ciphertext column, fall back to the
+// legacy plaintext column for rows that haven't been backfilled yet. Returns
+// the plaintext value (or null) regardless of which column it came from, so
+// downstream callers don't need to know which storage path was used.
+async function openIfPresent(
+    ct: unknown,
+    fallback: unknown,
+): Promise<string | null> {
+    if (ct) {
+        const buf = byteaToBuffer(ct);
+        return await getTenantCrypto().open(buf);
+    }
+    if (typeof fallback === "string" && fallback.length > 0) return fallback;
+    return null;
+}
+
 export async function getUserModelSettings(
     userId: string,
     db?: ReturnType<typeof createServerSupabase>,
@@ -29,13 +46,21 @@ export async function getUserModelSettings(
     const client = db ?? createServerSupabase();
     const { data } = await client
         .from("user_profiles")
-        .select("tabular_model, claude_api_key, gemini_api_key")
+        .select(
+            "tabular_model, claude_api_key, gemini_api_key, claude_api_key_ct, gemini_api_key_ct",
+        )
         .eq("user_id", userId)
         .single();
 
     const api_keys: UserApiKeys = {
-        claude: data?.claude_api_key ?? null,
-        gemini: data?.gemini_api_key ?? null,
+        claude: await openIfPresent(
+            data?.claude_api_key_ct,
+            data?.claude_api_key,
+        ),
+        gemini: await openIfPresent(
+            data?.gemini_api_key_ct,
+            data?.gemini_api_key,
+        ),
     };
 
     return {
@@ -52,11 +77,19 @@ export async function getUserApiKeys(
     const client = db ?? createServerSupabase();
     const { data } = await client
         .from("user_profiles")
-        .select("claude_api_key, gemini_api_key")
+        .select(
+            "claude_api_key, gemini_api_key, claude_api_key_ct, gemini_api_key_ct",
+        )
         .eq("user_id", userId)
         .single();
     return {
-        claude: data?.claude_api_key ?? null,
-        gemini: data?.gemini_api_key ?? null,
+        claude: await openIfPresent(
+            data?.claude_api_key_ct,
+            data?.claude_api_key,
+        ),
+        gemini: await openIfPresent(
+            data?.gemini_api_key_ct,
+            data?.gemini_api_key,
+        ),
     };
 }
