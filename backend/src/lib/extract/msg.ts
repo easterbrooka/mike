@@ -11,6 +11,7 @@ import MsgReader from "@kenjiuno/msgreader";
 import type { ParsedEml } from "./eml";
 import { emlToLLMText, stripHtml } from "./eml";
 import { renderAttachments, type AttachmentInput } from "./emailAttachments";
+import { rtfCompressedToText } from "./rtf";
 
 /**
  * msgreader's per-attachment FieldsData. We only narrow the fields we
@@ -76,7 +77,7 @@ function buildParsedEml(data: ReturnType<MsgReader["getFileData"]>): ParsedEml {
 
     return {
         subject: data.subject ?? null,
-        from: formatSender(data.senderName, data.senderEmail),
+        from: formatSender(data.senderName, senderEmailOf(data)),
         to,
         cc,
         date: parseDate(data.messageDeliveryTime),
@@ -94,17 +95,54 @@ function buildParsedEml(data: ReturnType<MsgReader["getFileData"]>): ParsedEml {
 }
 
 /**
- * Fall back from plain-text body to HTML-stripped body when Outlook
- * saved the message in HTML mode (PidTagBodyHtml present, PidTagBody
- * empty). Matches the .eml flow which already does this. RTF
- * decompression (PidTagRtfCompressed) is not handled — covering it
- * would need decompressrtf + an RTF→text pass; defer until users hit
- * an RTF-only .msg in practice.
+ * Body extraction fallback chain. Outlook scatters the message body
+ * across several MAPI properties depending on the source / compose
+ * mode; we try them in order of fidelity:
+ *
+ *   1. PidTagBody          — plain-text body
+ *   2. PidTagBodyHtml      — HTML body, already decoded (we strip tags)
+ *   3. PidTagRtfCompressed — RFC-2557 encapsulated HTML or plain text
+ *                            (decompress + de-encapsulate; common when
+ *                            saving from older Outlook)
+ *   4. PidTagHtml          — HTML body as raw bytes; modern Outlook
+ *                            saved-as-.msg files often only populate
+ *                            this. We decode by the codepage Outlook
+ *                            recorded (defaulting to UTF-8) then strip.
+ *   5. preview             — truncated plain-text preview; last resort
+ *                            so the LLM gets at least something.
  */
 function emailBodyText(data: ReturnType<MsgReader["getFileData"]>): string {
     if (data.body && data.body.trim()) return data.body;
     if (data.bodyHtml && data.bodyHtml.trim()) return stripHtml(data.bodyHtml);
+    if (data.compressedRtf && data.compressedRtf.length > 0) {
+        const rtfText = rtfCompressedToText(data.compressedRtf);
+        if (rtfText.trim()) return rtfText;
+    }
+    if (data.html && data.html.length > 0) {
+        const htmlText = decodeHtmlBytes(data.html, data.internetCodepage);
+        if (htmlText.trim()) return stripHtml(htmlText);
+    }
+    if (data.preview && data.preview.trim()) return data.preview;
     return "";
+}
+
+function decodeHtmlBytes(bytes: Uint8Array, codepage?: number): string {
+    const label = codepageToLabel(codepage);
+    try {
+        return new TextDecoder(label, { fatal: false }).decode(bytes);
+    } catch {
+        // Unknown codepage label — fall back to UTF-8.
+        return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+    }
+}
+
+function codepageToLabel(cp: number | undefined): string {
+    if (!cp || cp === 65001) return "utf-8";
+    if (cp === 1200) return "utf-16le";
+    if (cp === 1201) return "utf-16be";
+    if (cp >= 1250 && cp <= 1258) return `windows-${cp}`;
+    if (cp === 28591) return "iso-8859-1";
+    return "utf-8";
 }
 
 /**
@@ -123,6 +161,25 @@ function displayName(a: MsgAttachment): string {
     return "";
 }
 
+/**
+ * Pick the most useful sender email address from the half-dozen fields
+ * Outlook may populate. `senderEmail` is often the LDAP-style EX
+ * address (`/O=EXCHANGELABS/OU=...`) for internal senders, which is
+ * useless in a UI. Prefer the actual SMTP fields when present.
+ */
+function senderEmailOf(
+    data: ReturnType<MsgReader["getFileData"]>,
+): string | undefined {
+    return (
+        data.senderSmtpAddress ||
+        data.creatorSMTPAddress ||
+        // sentRepresentingSmtpAddress is set when delegate-send is used.
+        (data as { sentRepresentingSmtpAddress?: string })
+            .sentRepresentingSmtpAddress ||
+        data.senderEmail
+    );
+}
+
 function formatSender(
     name: string | undefined,
     email: string | undefined,
@@ -132,11 +189,14 @@ function formatSender(
 }
 
 function joinAddresses(
-    recipients: { name?: string; email?: string }[],
+    recipients: { name?: string; email?: string; smtpAddress?: string }[],
 ): string | null {
     if (recipients.length === 0) return null;
     const parts = recipients
-        .map((r) => formatSender(r.name, r.email))
+        // Internal Exchange recipients have `email` set to the LDAP-style
+        // `/O=EXCHANGELABS/OU=…` string; `smtpAddress` (when set) carries
+        // the real SMTP address.
+        .map((r) => formatSender(r.name, r.smtpAddress || r.email))
         .filter((s): s is string => !!s);
     return parts.length > 0 ? parts.join(", ") : null;
 }
