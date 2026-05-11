@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractEml, emlToLLMText } from "../eml";
+import { extractEml, extractEmlForLLM, emlToLLMText } from "../eml";
 
 function emlBuf(raw: string): ArrayBuffer {
     const b = Buffer.from(raw, "utf8");
@@ -121,5 +121,82 @@ describe("emlToLLMText", () => {
         };
         const text = emlToLLMText(eml);
         expect(text).toMatch(/\[Attachments: a\.pdf, b\.png\]/);
+    });
+});
+
+describe("extractEmlForLLM", () => {
+    it("matches emlToLLMText when there are no attachments", async () => {
+        const eml = await extractEml(emlBuf(SAMPLE_PLAIN));
+        const baseline = emlToLLMText(eml);
+        const expanded = await extractEmlForLLM(emlBuf(SAMPLE_PLAIN));
+        expect(expanded).toBe(baseline);
+    });
+
+    it("inlines the text content of a .txt attachment", async () => {
+        const boundary = "B1";
+        const noteBody = "Hello from the inlined attachment.";
+        const noteB64 = Buffer.from(noteBody, "utf8").toString("base64");
+        const eml = [
+            "From: a@x.com",
+            "To: b@x.com",
+            "Subject: With txt attachment",
+            "Date: Mon, 11 May 2026 12:00:00 +0000",
+            "MIME-Version: 1.0",
+            `Content-Type: multipart/mixed; boundary="${boundary}"`,
+            "",
+            `--${boundary}`,
+            "Content-Type: text/plain; charset=utf-8",
+            "",
+            "See attached.",
+            "",
+            `--${boundary}`,
+            "Content-Type: text/plain; name=\"notes.txt\"",
+            "Content-Disposition: attachment; filename=\"notes.txt\"",
+            "Content-Transfer-Encoding: base64",
+            "",
+            noteB64,
+            "",
+            `--${boundary}--`,
+            "",
+        ].join("\r\n");
+        const out = await extractEmlForLLM(emlBuf(eml));
+        expect(out).toContain("See attached.");
+        expect(out).toContain("--- Attachment: notes.txt ---");
+        expect(out).toContain("Hello from the inlined attachment.");
+    });
+
+    it("skips inline-image attachments flagged related=true by mailparser", async () => {
+        // A multipart/related part with a Content-ID is treated as inline
+        // by mailparser. We want the signature image filtered out.
+        const boundary = "B2";
+        const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+        const eml = [
+            "From: a@x.com",
+            "To: b@x.com",
+            "Subject: With inline image",
+            "Date: Mon, 11 May 2026 12:00:00 +0000",
+            "MIME-Version: 1.0",
+            `Content-Type: multipart/related; boundary="${boundary}"`,
+            "",
+            `--${boundary}`,
+            "Content-Type: text/html; charset=utf-8",
+            "",
+            "<p>Body with <img src=\"cid:logo@example.com\"></p>",
+            "",
+            `--${boundary}`,
+            "Content-Type: image/png; name=\"logo.png\"",
+            "Content-ID: <logo@example.com>",
+            "Content-Disposition: inline; filename=\"logo.png\"",
+            "Content-Transfer-Encoding: base64",
+            "",
+            pngBytes.toString("base64"),
+            "",
+            `--${boundary}--`,
+            "",
+        ].join("\r\n");
+        const out = await extractEmlForLLM(emlBuf(eml));
+        // The summary line still mentions the filename, but no expanded
+        // section appears for the image.
+        expect(out).not.toContain("--- Attachment: logo.png ---");
     });
 });

@@ -22,8 +22,8 @@ import {
     type OpenAIToolSchema,
 } from "./llm";
 import { extractTxt, txtToLLMText } from "./extract/txt";
-import { extractEml, emlToLLMText } from "./extract/eml";
-import { extractMsg } from "./extract/msg";
+import { extractEmlForLLM } from "./extract/eml";
+import { extractMsgForLLM } from "./extract/msg";
 import { extractXlsx, xlsxToLLMText } from "./extract/xlsx";
 import { bufferToBytea } from "./crypto/migrate";
 import { emailIndex } from "./crypto/searchable";
@@ -1261,16 +1261,14 @@ async function readDocumentContent(
                 `[read_document] txt length=${text.length} for filename="${docInfo.filename}"`,
             );
         } else if (docInfo.file_type === "eml") {
-            const eml = await extractEml(raw);
-            text = emlToLLMText(eml);
+            text = await extractEmlForLLM(raw);
             console.log(
-                `[read_document] eml length=${text.length} attachments=${eml.attachments.length} for filename="${docInfo.filename}"`,
+                `[read_document] eml length=${text.length} for filename="${docInfo.filename}"`,
             );
         } else if (docInfo.file_type === "msg") {
-            const msg = await extractMsg(raw);
-            text = emlToLLMText(msg);
+            text = await extractMsgForLLM(raw);
             console.log(
-                `[read_document] msg length=${text.length} attachments=${msg.attachments.length} for filename="${docInfo.filename}"`,
+                `[read_document] msg length=${text.length} for filename="${docInfo.filename}"`,
             );
         } else if (docInfo.file_type === "xlsx") {
             const workbook = await extractXlsx(raw);

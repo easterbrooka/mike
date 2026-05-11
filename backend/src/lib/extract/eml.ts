@@ -8,6 +8,7 @@
  */
 
 import { simpleParser } from "mailparser";
+import { renderAttachments, type AttachmentInput } from "./emailAttachments";
 
 const MAX_LLM_CHARS = 200_000;
 
@@ -72,6 +73,53 @@ export function emlToLLMText(eml: ParsedEml): string {
             `\n\n[…truncated at ${MAX_LLM_CHARS.toLocaleString()} characters]`;
     }
     return body;
+}
+
+/**
+ * Variant of the .eml pipeline used by chatTools.read_document. Renders
+ * the email AND the text of any extractable attachments (PDF/DOCX/TXT/
+ * XLSX/recursive EML/MSG). The /display endpoint keeps using extractEml
+ * + emlToLLMText, which only surfaces attachment filenames — UI shape is
+ * unchanged.
+ */
+export async function extractEmlForLLM(
+    buf: ArrayBuffer,
+    depth = 0,
+): Promise<string> {
+    const parsed = await simpleParser(Buffer.from(buf));
+    const eml: ParsedEml = {
+        subject: parsed.subject ?? null,
+        from: parsed.from?.text ?? null,
+        to: addressText(parsed.to),
+        cc: addressText(parsed.cc),
+        date: parsed.date ? parsed.date.toISOString() : null,
+        text:
+            (parsed.text && parsed.text.trim()) ||
+            (parsed.html ? stripHtml(parsed.html) : "") ||
+            "",
+        attachments: (parsed.attachments ?? [])
+            .filter((a) => !!a.filename)
+            .map((a) => ({
+                filename: a.filename as string,
+                contentType: a.contentType ?? null,
+            })),
+    };
+    const baseText = emlToLLMText(eml);
+
+    // mailparser flags inline images (signature logos, cid:-referenced
+    // HTML embeds) as `related: true`. Skip them — the user does not
+    // think of them as documents.
+    const attachmentBytes: AttachmentInput[] = (parsed.attachments ?? [])
+        .filter((a) => !!a.filename && !a.related && Buffer.isBuffer(a.content))
+        .map((a) => ({
+            filename: a.filename as string,
+            bytes: a.content as Buffer,
+        }));
+
+    if (attachmentBytes.length === 0) return baseText;
+    const expanded = await renderAttachments(attachmentBytes, depth);
+    if (!expanded) return baseText;
+    return `${baseText}\n\n${expanded}`;
 }
 
 type AddressGroup = { text?: string };
