@@ -10,8 +10,14 @@ import {
 import { emailIndex } from "../lib/crypto/searchable";
 
 function getAdminClient() {
+  // NEXT_PUBLIC_* is a Next.js frontend env-var convention; the backend
+  // never had that variable wired in. The right name on the backend is
+  // SUPABASE_URL (matches lib/supabase.ts). Until this was fixed,
+  // getAdminClient threw "supabaseUrl is required" the moment a user
+  // had at least one workflow_shares row, which crashed the GET
+  // /workflows handler and rebooted the task.
   return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+    process.env.SUPABASE_URL ?? "",
     process.env.SUPABASE_SECRET_KEY ?? "",
     { auth: { autoRefreshToken: false, persistSession: false } },
   );
