@@ -2,12 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 
 const mockGetFileData = vi.hoisted(() => vi.fn());
 const mockGetAttachment = vi.hoisted(() => vi.fn());
+const mockRtfToText = vi.hoisted(() => vi.fn());
 
 vi.mock("@kenjiuno/msgreader", () => ({
     default: vi.fn().mockImplementation(() => ({
         getFileData: mockGetFileData,
         getAttachment: mockGetAttachment,
     })),
+}));
+vi.mock("../rtf", () => ({
+    rtfCompressedToText: mockRtfToText,
 }));
 
 import { extractMsg, extractMsgForLLM } from "../msg";
@@ -118,7 +122,28 @@ describe("extractMsg body fallback", () => {
 
     it("returns empty string when neither body nor bodyHtml is set", async () => {
         mockGetFileData.mockReturnValue({});
+        mockRtfToText.mockReturnValue("");
         expect((await extractMsg(emptyBuf())).text).toBe("");
+    });
+
+    it("falls back to compressedRtf when body and bodyHtml are both empty", async () => {
+        mockGetFileData.mockReturnValue({
+            compressedRtf: new Uint8Array([1, 2, 3]),
+        });
+        mockRtfToText.mockReturnValue("Decoded from compressed RTF.");
+        const out = await extractMsg(emptyBuf());
+        expect(out.text).toBe("Decoded from compressed RTF.");
+        expect(mockRtfToText).toHaveBeenCalled();
+    });
+
+    it("does not call rtfCompressedToText when bodyHtml is populated", async () => {
+        mockRtfToText.mockClear();
+        mockGetFileData.mockReturnValue({
+            bodyHtml: "<p>html body wins</p>",
+            compressedRtf: new Uint8Array([1, 2, 3]),
+        });
+        await extractMsg(emptyBuf());
+        expect(mockRtfToText).not.toHaveBeenCalled();
     });
 });
 

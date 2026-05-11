@@ -11,6 +11,7 @@ import MsgReader from "@kenjiuno/msgreader";
 import type { ParsedEml } from "./eml";
 import { emlToLLMText, stripHtml } from "./eml";
 import { renderAttachments, type AttachmentInput } from "./emailAttachments";
+import { rtfCompressedToText } from "./rtf";
 
 /**
  * msgreader's per-attachment FieldsData. We only narrow the fields we
@@ -94,16 +95,21 @@ function buildParsedEml(data: ReturnType<MsgReader["getFileData"]>): ParsedEml {
 }
 
 /**
- * Fall back from plain-text body to HTML-stripped body when Outlook
- * saved the message in HTML mode (PidTagBodyHtml present, PidTagBody
- * empty). Matches the .eml flow which already does this. RTF
- * decompression (PidTagRtfCompressed) is not handled — covering it
- * would need decompressrtf + an RTF→text pass; defer until users hit
- * an RTF-only .msg in practice.
+ * Body extraction fallback chain. Outlook saves the body in any of
+ * three places depending on the compose mode and source:
+ *   1. PidTagBody          — plain-text body
+ *   2. PidTagBodyHtml      — HTML body (we strip tags)
+ *   3. PidTagRtfCompressed — RFC-2557 encapsulated HTML or plain text
+ *                            (decompress + de-encapsulate; common for
+ *                            messages composed in Outlook HTML mode)
  */
 function emailBodyText(data: ReturnType<MsgReader["getFileData"]>): string {
     if (data.body && data.body.trim()) return data.body;
     if (data.bodyHtml && data.bodyHtml.trim()) return stripHtml(data.bodyHtml);
+    if (data.compressedRtf && data.compressedRtf.length > 0) {
+        const rtfText = rtfCompressedToText(data.compressedRtf);
+        if (rtfText.trim()) return rtfText;
+    }
     return "";
 }
 
