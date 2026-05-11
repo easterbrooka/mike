@@ -3,16 +3,29 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { apiBase } from "@/app/lib/apiBase";
+import type {
+    ParsedEml,
+    ParsedXlsx,
+} from "@/app/components/shared/extractedDocTypes";
 
 /**
- * /display returns either PDF bytes (when the active version has a PDF
- * rendition) or raw DOCX bytes otherwise. Reporting the type lets the
- * caller swap between DocView (PDF.js) and DocxView (docx-preview)
- * accordingly.
+ * /display returns one of:
+ *   - PDF bytes                            (active version has a PDF rendition)
+ *   - DOCX bytes                           (active version has no PDF rendition)
+ *   - plain text                           (.txt uploads)
+ *   - application/vnd.mike.eml+json        (.eml, pre-parsed)
+ *   - application/vnd.mike.xlsx+json       (.xlsx, pre-parsed)
+ *
+ * The hook reads the response Content-Type and surfaces the parsed shape
+ * for the new types so callers don't have to know how to parse .eml /.xlsx
+ * client-side.
  */
 export type DocResult =
     | { type: "pdf"; buffer: ArrayBuffer }
     | { type: "docx" }
+    | { type: "txt"; text: string }
+    | { type: "eml"; parsed: ParsedEml }
+    | { type: "xlsx"; parsed: ParsedXlsx }
     | null;
 
 export function useFetchSingleDoc(
@@ -63,6 +76,15 @@ export function useFetchSingleDoc(
                 if (contentType.includes("application/pdf")) {
                     const buffer = await response.arrayBuffer();
                     if (!cancelled) setResult({ type: "pdf", buffer });
+                } else if (contentType.includes("application/vnd.mike.eml+json")) {
+                    const parsed = (await response.json()) as ParsedEml;
+                    if (!cancelled) setResult({ type: "eml", parsed });
+                } else if (contentType.includes("application/vnd.mike.xlsx+json")) {
+                    const parsed = (await response.json()) as ParsedXlsx;
+                    if (!cancelled) setResult({ type: "xlsx", parsed });
+                } else if (contentType.includes("text/plain")) {
+                    const text = await response.text();
+                    if (!cancelled) setResult({ type: "txt", text });
                 } else {
                     // Drain the body so the connection is reusable, but the
                     // bytes are useless to the PDF viewer — the caller will

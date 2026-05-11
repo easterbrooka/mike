@@ -22,10 +22,18 @@ import {
   loadActiveVersion,
 } from "../lib/documentVersions";
 import { ensureDocAccess } from "../lib/access";
-import { singleFileUpload } from "../lib/upload";
+import {
+  SUPPORTED_DOC_TYPES,
+  contentTypeForSuffix,
+  singleFileUpload,
+} from "../lib/upload";
+import { extractTxt } from "../lib/extract/txt";
+import { extractEml } from "../lib/extract/eml";
+import { extractXlsx } from "../lib/extract/xlsx";
 
 export const documentsRouter = Router();
-const ALLOWED_TYPES = new Set(["pdf", "docx", "doc"]);
+const ALLOWED_TYPES = new Set<string>(SUPPORTED_DOC_TYPES);
+const ALLOWED_LIST = SUPPORTED_DOC_TYPES.join(", ");
 
 // GET /single-documents
 documentsRouter.get("/", requireAuth, async (req, res) => {
@@ -133,6 +141,23 @@ documentsRouter.get("/:documentId/display", requireAuth, async (req, res) => {
 
   if (fileType === "pdf" || (isDocx && active.pdf_storage_path)) {
     res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      buildContentDisposition("inline", doc.filename as string),
+    );
+    res.send(Buffer.from(raw));
+  } else if (fileType === "eml") {
+    // Pre-parsed JSON keeps mailparser out of the browser bundle. Vendor
+    // content-type lets useFetchSingleDoc disambiguate from xlsx.
+    const eml = await extractEml(raw);
+    res.setHeader("Content-Type", "application/vnd.mike.eml+json; charset=utf-8");
+    res.send(JSON.stringify(eml));
+  } else if (fileType === "xlsx") {
+    const workbook = await extractXlsx(raw);
+    res.setHeader("Content-Type", "application/vnd.mike.xlsx+json; charset=utf-8");
+    res.send(JSON.stringify(workbook));
+  } else if (fileType === "txt") {
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.setHeader(
       "Content-Disposition",
       buildContentDisposition("inline", doc.filename as string),
@@ -421,10 +446,7 @@ documentsRouter.post(
       versionSlug,
       file.originalname,
     );
-    const contentType =
-      suffix === "pdf"
-        ? "application/pdf"
-        : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    const contentType = contentTypeForSuffix(suffix);
     try {
       await uploadFile(
         key,
@@ -848,7 +870,7 @@ async function handleDocumentUpload(
     return void res
       .status(400)
       .json({
-        detail: `Unsupported file type: ${suffix}. Allowed: pdf, docx, doc`,
+        detail: `Unsupported file type: ${suffix}. Allowed: ${ALLOWED_LIST}`,
       });
 
   const content = file.buffer;
@@ -872,10 +894,7 @@ async function handleDocumentUpload(
   try {
     const docId = doc.id as string;
     const key = storageKey(userId, docId, filename);
-    const contentType =
-      suffix === "pdf"
-        ? "application/pdf"
-        : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    const contentType = contentTypeForSuffix(suffix);
     await uploadFile(
       key,
       content.buffer.slice(
@@ -1021,6 +1040,39 @@ async function extractStructureTree(
         page_number: i + 1,
         children: [],
       }));
+    } else if (fileType === "txt") {
+      const text = extractTxt(content);
+      const lines = text.split("\n").filter((l) => l.trim());
+      const nodes = lines.slice(0, 30).map((line, i) => ({
+        id: `h1-${i}`,
+        title: line.slice(0, 100),
+        level: 1,
+        page_number: null,
+        children: [],
+      }));
+      return nodes.length ? nodes : null;
+    } else if (fileType === "eml") {
+      const eml = await extractEml(content);
+      if (!eml.subject) return null;
+      return [
+        {
+          id: "h1-0",
+          title: eml.subject.slice(0, 100),
+          level: 1,
+          page_number: null,
+          children: [],
+        },
+      ];
+    } else if (fileType === "xlsx") {
+      const workbook = await extractXlsx(content);
+      const nodes = workbook.sheets.map((s, i) => ({
+        id: `h1-${i}`,
+        title: s.name,
+        level: 1,
+        page_number: null,
+        children: [],
+      }));
+      return nodes.length ? nodes : null;
     } else {
       const mammoth = await import("mammoth");
       const result = await mammoth.extractRawText({

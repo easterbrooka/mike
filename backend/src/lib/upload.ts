@@ -6,6 +6,34 @@ export const MAX_UPLOAD_SIZE_MB = Math.round(
   MAX_UPLOAD_SIZE_BYTES / (1024 * 1024),
 );
 
+export const SUPPORTED_DOC_TYPES = [
+  "pdf",
+  "docx",
+  "doc",
+  "txt",
+  "eml",
+  "xlsx",
+] as const;
+export type SupportedDocType = (typeof SUPPORTED_DOC_TYPES)[number];
+
+export function contentTypeForSuffix(suffix: string): string {
+  switch (suffix) {
+    case "pdf":
+      return "application/pdf";
+    case "txt":
+      return "text/plain; charset=utf-8";
+    case "eml":
+      return "message/rfc822";
+    case "xlsx":
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    case "docx":
+    case "doc":
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    default:
+      return "application/octet-stream";
+  }
+}
+
 const memoryUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
