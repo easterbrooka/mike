@@ -43,8 +43,22 @@ import {
     uploadDocumentVersion,
     renameDocumentVersion,
     getProjectPeople,
+    uploadProjectDocument,
     type MikeDocumentVersion,
 } from "@/app/lib/mikeApi";
+
+const SUPPORTED_UPLOAD_EXTS = new Set([
+    "pdf",
+    "docx",
+    "doc",
+    "txt",
+    "eml",
+    "xlsx",
+]);
+
+function suffixOf(name: string): string {
+    return name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
+}
 import type {
     MikeDocument,
     MikeFolder,
@@ -820,6 +834,12 @@ export function ProjectPage({ projectId }: Props) {
     }
 
     async function handleDropOnFolder(targetFolderId: string | null, dt: DataTransfer) {
+        // External file drop from the OS — upload the files into the target
+        // folder (or project root if targetFolderId is null).
+        if (dt.files && dt.files.length > 0) {
+            await handleExternalFileDrop(targetFolderId, Array.from(dt.files));
+            return;
+        }
         const docId = dt.getData("application/mike-doc");
         const subFolderId = dt.getData("application/mike-folder");
         if (docId) {
@@ -841,6 +861,62 @@ export function ProjectPage({ projectId }: Props) {
             ));
             await moveSubfolderToFolder(projectId, subFolderId, targetFolderId);
         }
+    }
+
+    async function handleExternalFileDrop(
+        targetFolderId: string | null,
+        files: File[],
+    ) {
+        const supported = files.filter((f) =>
+            SUPPORTED_UPLOAD_EXTS.has(suffixOf(f.name)),
+        );
+        const unsupported = files.filter(
+            (f) => !SUPPORTED_UPLOAD_EXTS.has(suffixOf(f.name)),
+        );
+        if (unsupported.length > 0) {
+            alert(
+                `Cannot upload: ${unsupported.map((f) => f.name).join(", ")}.\n` +
+                    `Supported types: ${Array.from(SUPPORTED_UPLOAD_EXTS).join(", ")}.`,
+            );
+        }
+        if (supported.length === 0) return;
+
+        const uploaded = await Promise.allSettled(
+            supported.map((f) => uploadProjectDocument(projectId, f)),
+        );
+        const newDocs: MikeDocument[] = [];
+        for (const r of uploaded) {
+            if (r.status === "fulfilled") newDocs.push(r.value);
+            else console.error("[ProjectPage] drop upload failed", r.reason);
+        }
+        if (newDocs.length === 0) return;
+
+        if (targetFolderId !== null) {
+            await Promise.allSettled(
+                newDocs.map((d) =>
+                    moveDocumentToFolder(projectId, d.id, targetFolderId).catch(
+                        (err) => {
+                            console.error("[ProjectPage] move-after-upload failed", err);
+                        },
+                    ),
+                ),
+            );
+            for (const d of newDocs) d.folder_id = targetFolderId;
+        }
+
+        setProject((prev) =>
+            prev
+                ? {
+                      ...prev,
+                      documents: [
+                          ...(prev.documents ?? []),
+                          ...newDocs.filter(
+                              (n) => !prev.documents?.some((e) => e.id === n.id),
+                          ),
+                      ],
+                  }
+                : prev,
+        );
     }
 
     // ── Tree rendering ────────────────────────────────────────────────────────
@@ -1239,7 +1315,23 @@ export function ProjectPage({ projectId }: Props) {
     );
 
     return (
-        <div className="flex-1 overflow-y-auto bg-white flex flex-col h-full">
+        <div
+            className="flex-1 overflow-y-auto bg-white flex flex-col h-full"
+            // Page-level drop fallback so files dropped on the header /
+            // padding / sidebar gutter don't trigger Chrome's default
+            // file-open behaviour. Internal mike-doc / mike-folder drags
+            // bubble up here too but call stopPropagation on their own
+            // handlers, so they don't reach this point.
+            onDragOver={(e) => {
+                if (e.dataTransfer.types.includes("Files")) e.preventDefault();
+            }}
+            onDrop={(e) => {
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    e.preventDefault();
+                    void handleDropOnFolder(null, e.dataTransfer);
+                }
+            }}
+        >
             {/* Page header */}
             <div className="flex items-start justify-between px-8 py-4">
                 <div>
@@ -1384,7 +1476,7 @@ export function ProjectPage({ projectId }: Props) {
                                     setContextMenu({ x: e.clientX, y: e.clientY, folderId: null, showFolderActions: false });
                                 }}
                                 onClick={() => setContextMenu(null)}
-                                onDragOver={(e) => { e.preventDefault(); setDragOverRoot(true); }}
+                                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverRoot(true); }}
                                 onDragLeave={(e) => {
                                     if (!e.currentTarget.contains(e.relatedTarget as Node)) {
                                         setDragOverRoot(false);
@@ -1392,6 +1484,7 @@ export function ProjectPage({ projectId }: Props) {
                                 }}
                                 onDrop={async (e) => {
                                     e.preventDefault();
+                                    e.stopPropagation();
                                     setDragOverRoot(false);
                                     setDragOverFolderId(null);
                                     await handleDropOnFolder(null, e.dataTransfer);
