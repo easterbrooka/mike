@@ -138,7 +138,7 @@ function addressText(
     return field.text ?? null;
 }
 
-function stripHtml(html: string): string {
+export function stripHtml(html: string): string {
     return html
         .replace(/<style[\s\S]*?<\/style>/gi, "")
         .replace(/<script[\s\S]*?<\/script>/gi, "")
