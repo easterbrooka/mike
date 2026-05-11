@@ -22,7 +22,7 @@
 
 import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
-import { ensureUserHasDek } from "../src/lib/crypto/migrate";
+import { bufferToBytea, ensureUserHasDek } from "../src/lib/crypto/migrate";
 import { seal } from "../src/lib/crypto/aead";
 import { emailIndex } from "../src/lib/crypto/searchable";
 
@@ -63,14 +63,18 @@ async function main() {
 
     let profilesUpdated = 0;
     for (const p of profiles ?? []) {
-        const updates: Record<string, Buffer> = {};
+        const updates: Record<string, string> = {};
         if (p.claude_api_key && !p.claude_api_key_ct) {
             const { dekId, dek } = await dekFor(p.user_id as string);
-            updates.claude_api_key_ct = seal(p.claude_api_key as string, dek, dekId);
+            updates.claude_api_key_ct = bufferToBytea(
+                seal(p.claude_api_key as string, dek, dekId),
+            );
         }
         if (p.gemini_api_key && !p.gemini_api_key_ct) {
             const { dekId, dek } = await dekFor(p.user_id as string);
-            updates.gemini_api_key_ct = seal(p.gemini_api_key as string, dek, dekId);
+            updates.gemini_api_key_ct = bufferToBytea(
+                seal(p.gemini_api_key as string, dek, dekId),
+            );
         }
         if (Object.keys(updates).length === 0) continue;
         const { error } = await db
@@ -101,13 +105,13 @@ async function main() {
             );
             continue;
         }
-        const updates: Record<string, Buffer> = {};
+        const updates: Record<string, string> = {};
         if (!s.shared_with_email_ct) {
             const { dekId, dek } = await dekFor(sharerId);
-            updates.shared_with_email_ct = seal(email, dek, dekId);
+            updates.shared_with_email_ct = bufferToBytea(seal(email, dek, dekId));
         }
         if (!s.shared_with_email_hmac) {
-            updates.shared_with_email_hmac = emailIndex(email);
+            updates.shared_with_email_hmac = bufferToBytea(emailIndex(email));
         }
         const { error } = await db
             .from("workflow_shares")

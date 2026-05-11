@@ -23,7 +23,12 @@ vi.mock("@aws-sdk/client-kms", () => ({
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { _resetKmsClientForTests } from "../kms";
-import { ensureUserHasDek, tenantCrypto } from "../migrate";
+import {
+    bufferToBytea,
+    byteaToBuffer,
+    ensureUserHasDek,
+    tenantCrypto,
+} from "../migrate";
 
 // ----- Fake Supabase ----------------------------------------------------
 
@@ -79,11 +84,25 @@ class TenantDeksQuery {
     insert(payload: {
         user_id: string;
         kms_key_arn: string;
-        wrapped_dek: Buffer;
+        wrapped_dek: unknown;
         is_active: boolean;
     }) {
+        // Real PostgREST rejects raw Buffer (JSON.stringify-s to
+        // {"type":"Buffer",...}); callers must pre-encode with bufferToBytea.
+        // Mirror that contract so tests catch any regression where a Buffer
+        // sneaks through.
+        if (typeof payload.wrapped_dek !== "string" || !payload.wrapped_dek.startsWith("\\x")) {
+            throw new Error(
+                `FakeSupabase.insert: wrapped_dek must be a \\x-prefixed hex string (got ${typeof payload.wrapped_dek})`,
+            );
+        }
         this.mode = "insert";
-        this.insertPayload = payload;
+        this.insertPayload = {
+            user_id: payload.user_id,
+            kms_key_arn: payload.kms_key_arn,
+            wrapped_dek: Buffer.from(payload.wrapped_dek.slice(2), "hex"),
+            is_active: payload.is_active,
+        };
         return this;
     }
     async single() {
@@ -278,6 +297,69 @@ describe("tenantCrypto.sealNullable", () => {
         const env = await tc.sealNullable("user", "value");
         expect(env).not.toBeNull();
         expect(await tc.open(env!)).toBe("value");
+    });
+});
+
+describe("bufferToBytea / byteaToBuffer", () => {
+    it("round-trips arbitrary bytes through the \\x-hex wire format", () => {
+        const original = Buffer.from([0x00, 0xff, 0x10, 0xab, 0xcd, 0xef, 0x42, 0x7f]);
+        const encoded = bufferToBytea(original);
+        expect(encoded.startsWith("\\x")).toBe(true);
+        expect(encoded).toBe("\\x00ff10abcdef427f");
+        expect(byteaToBuffer(encoded).equals(original)).toBe(true);
+    });
+
+    it("encoded value is JSON-safe (postgrest-js stringifies bodies)", () => {
+        // Regression: a raw Buffer would JSON.stringify to
+        // {"type":"Buffer","data":[...]}, which bytea rejects. The encoded
+        // string must survive stringify -> parse unchanged.
+        const original = Buffer.from("hello", "utf8");
+        const encoded = bufferToBytea(original);
+        const roundTrip = JSON.parse(JSON.stringify({ col: encoded })).col;
+        expect(roundTrip).toBe("\\x68656c6c6f");
+        expect(byteaToBuffer(roundTrip).toString("utf8")).toBe("hello");
+    });
+
+    it("documents why bufferToBytea is required: raw Buffer JSON-stringifies to a shape bytea rejects", () => {
+        // This test exists as living documentation of the bug that bufferToBytea
+        // fixes. supabase-js builds request bodies with JSON.stringify (see
+        // postgrest-js/src/PostgrestBuilder.ts), so any raw Buffer value
+        // becomes {"type":"Buffer","data":[...]} on the wire — which PostgREST
+        // cannot coerce to a bytea column. Always wrap Buffer values with
+        // bufferToBytea before they reach a .insert / .update / .upsert /
+        // .eq call against a bytea column.
+        const buf = Buffer.from([0x12, 0x34, 0xab]);
+        const serialised = JSON.parse(JSON.stringify({ col: buf }));
+        expect(typeof serialised.col).toBe("object");
+        expect(serialised.col).toEqual({ type: "Buffer", data: [0x12, 0x34, 0xab] });
+        // The fix:
+        expect(JSON.parse(JSON.stringify({ col: bufferToBytea(buf) })).col).toBe(
+            "\\x1234ab",
+        );
+    });
+
+    it("FakeSupabase rejects raw Buffer on insert (matches real PostgREST contract)", () => {
+        // Belt-and-braces regression guard. If a future call site forgets
+        // bufferToBytea and passes a Buffer to .insert(), the FakeSupabase
+        // throws — mirroring what real PostgREST would do — instead of
+        // silently storing a value the tests would have otherwise accepted.
+        const db = new FakeSupabase();
+        const builder = db.from("tenant_deks") as unknown as {
+            insert: (p: {
+                user_id: string;
+                kms_key_arn: string;
+                wrapped_dek: unknown;
+                is_active: boolean;
+            }) => unknown;
+        };
+        expect(() =>
+            builder.insert({
+                user_id: "u",
+                kms_key_arn: "k",
+                wrapped_dek: Buffer.from([0xaa, 0xbb]),
+                is_active: true,
+            })
+        ).toThrow(/\\x-prefixed hex string/);
     });
 });
 
