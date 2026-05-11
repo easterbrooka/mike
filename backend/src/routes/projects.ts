@@ -9,21 +9,19 @@ import {
 import { downloadFile, uploadFile, storageKey } from "../lib/storage";
 import { docxToPdf, convertedPdfKey } from "../lib/convert";
 import { checkProjectAccess } from "../lib/access";
-import { contentTypeForSuffix, singleFileUpload } from "../lib/upload";
+import {
+  SUPPORTED_DOC_TYPES,
+  contentTypeForSuffix,
+  singleFileUpload,
+} from "../lib/upload";
 import { extractTxt } from "../lib/extract/txt";
 import { extractEml } from "../lib/extract/eml";
 import { extractMsg } from "../lib/extract/msg";
 import { extractXlsx } from "../lib/extract/xlsx";
 
 export const projectsRouter = Router();
-const ALLOWED_TYPES = new Set([
-  "pdf",
-  "docx",
-  "doc",
-  "txt",
-  "eml",
-  "xlsx",
-]);
+const ALLOWED_TYPES = new Set<string>(SUPPORTED_DOC_TYPES);
+const ALLOWED_LIST = SUPPORTED_DOC_TYPES.join(", ");
 
 // GET /projects
 projectsRouter.get("/", requireAuth, async (req, res) => {
@@ -609,7 +607,7 @@ export async function handleDocumentUpload(
     return void res
       .status(400)
       .json({
-        detail: `Unsupported file type: ${suffix}. Allowed: ${Array.from(ALLOWED_TYPES).join(", ")}`,
+        detail: `Unsupported file type: ${suffix}. Allowed: ${ALLOWED_LIST}`,
       });
 
   const content = file.buffer;
