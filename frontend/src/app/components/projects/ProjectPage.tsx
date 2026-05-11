@@ -53,6 +53,7 @@ const SUPPORTED_UPLOAD_EXTS = new Set([
     "doc",
     "txt",
     "eml",
+    "msg",
     "xlsx",
 ]);
 

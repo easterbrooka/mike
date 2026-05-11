@@ -29,6 +29,7 @@ import {
 } from "../lib/upload";
 import { extractTxt } from "../lib/extract/txt";
 import { extractEml } from "../lib/extract/eml";
+import { extractMsg } from "../lib/extract/msg";
 import { extractXlsx } from "../lib/extract/xlsx";
 
 export const documentsRouter = Router();
@@ -152,6 +153,12 @@ documentsRouter.get("/:documentId/display", requireAuth, async (req, res) => {
     const eml = await extractEml(raw);
     res.setHeader("Content-Type", "application/vnd.mike.eml+json; charset=utf-8");
     res.send(JSON.stringify(eml));
+  } else if (fileType === "msg") {
+    // .msg maps onto the same ParsedEml shape so the FE EmlView renders
+    // both transparently.
+    const msg = await extractMsg(raw);
+    res.setHeader("Content-Type", "application/vnd.mike.eml+json; charset=utf-8");
+    res.send(JSON.stringify(msg));
   } else if (fileType === "xlsx") {
     const workbook = await extractXlsx(raw);
     res.setHeader("Content-Type", "application/vnd.mike.xlsx+json; charset=utf-8");
@@ -1051,13 +1058,14 @@ async function extractStructureTree(
         children: [],
       }));
       return nodes.length ? nodes : null;
-    } else if (fileType === "eml") {
-      const eml = await extractEml(content);
-      if (!eml.subject) return null;
+    } else if (fileType === "eml" || fileType === "msg") {
+      const parsed =
+        fileType === "msg" ? await extractMsg(content) : await extractEml(content);
+      if (!parsed.subject) return null;
       return [
         {
           id: "h1-0",
-          title: eml.subject.slice(0, 100),
+          title: parsed.subject.slice(0, 100),
           level: 1,
           page_number: null,
           children: [],
