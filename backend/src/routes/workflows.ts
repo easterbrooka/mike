@@ -2,7 +2,11 @@ import { Router } from "express";
 import { createClient } from "@supabase/supabase-js";
 import { requireAuth } from "../middleware/auth";
 import { createServerSupabase } from "../lib/supabase";
-import { byteaToBuffer, getTenantCrypto } from "../lib/crypto/migrate";
+import {
+  bufferToBytea,
+  byteaToBuffer,
+  getTenantCrypto,
+} from "../lib/crypto/migrate";
 import { emailIndex } from "../lib/crypto/searchable";
 
 function getAdminClient() {
@@ -68,7 +72,7 @@ async function resolveWorkflowAccess(
     .from("workflow_shares")
     .select("allow_edit")
     .eq("workflow_id", workflowId)
-    .eq("shared_with_email_hmac", emailIndex(normalizedUserEmail))
+    .eq("shared_with_email_hmac", bufferToBytea(emailIndex(normalizedUserEmail)))
     .maybeSingle();
   if (!share) return null;
 
@@ -98,7 +102,7 @@ workflowsRouter.get("/", requireAuth, async (req, res) => {
   const { data: shares } = await db
     .from("workflow_shares")
     .select("workflow_id, shared_by_user_id, allow_edit")
-    .eq("shared_with_email_hmac", emailIndex(normalizedUserEmail));
+    .eq("shared_with_email_hmac", bufferToBytea(emailIndex(normalizedUserEmail)));
 
   let sharedWorkflows: Record<string, unknown>[] = [];
   if (shares && shares.length > 0) {
@@ -388,8 +392,8 @@ workflowsRouter.post("/:workflowId/share", requireAuth, async (req, res) => {
         workflow_id: workflowId,
         shared_by_user_id: userId,
         shared_with_email: normalized,
-        shared_with_email_ct: sealed,
-        shared_with_email_hmac: emailIndex(normalized),
+        shared_with_email_ct: bufferToBytea(sealed),
+        shared_with_email_hmac: bufferToBytea(emailIndex(normalized)),
         allow_edit: allow_edit ?? false,
       };
     }),

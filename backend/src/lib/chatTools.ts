@@ -21,6 +21,7 @@ import {
     type LlmMessage,
     type OpenAIToolSchema,
 } from "./llm";
+import { bufferToBytea } from "./crypto/migrate";
 import { emailIndex } from "./crypto/searchable";
 
 const STANDARD_FONT_DATA_URL = (() => {
@@ -2820,7 +2821,7 @@ export async function buildWorkflowStore(
         const { data: shares } = await db
             .from("workflow_shares")
             .select("workflow_id")
-            .eq("shared_with_email_hmac", emailIndex(normalizedUserEmail));
+            .eq("shared_with_email_hmac", bufferToBytea(emailIndex(normalizedUserEmail)));
         const sharedIds = [...new Set((shares ?? []).map((share) => share.workflow_id))];
         if (sharedIds.length > 0) {
             const { data: sharedWorkflows } = await db

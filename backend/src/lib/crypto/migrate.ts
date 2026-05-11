@@ -58,6 +58,18 @@ export function byteaToBuffer(s: unknown): Buffer {
     return Buffer.from(s, "hex");
 }
 
+/**
+ * Inverse of byteaToBuffer: emits the `\x`-prefixed hex string PostgREST
+ * expects when writing or filtering bytea columns. supabase-js calls
+ * JSON.stringify on insert/upsert bodies and URL-encodes filter values; a
+ * raw Buffer would round-trip as `{"type":"Buffer","data":[...]}` (rejected
+ * by bytea) or as utf8 garbage in a filter param. Use this on every Buffer
+ * value before it crosses the supabase-js boundary.
+ */
+export function bufferToBytea(buf: Buffer): string {
+    return "\\x" + buf.toString("hex");
+}
+
 export function tenantCrypto(db: SupabaseClient): TenantCrypto {
     // Process-scoped cache. Map preserves insertion order, which we use as a
     // crude LRU when we hit the cap.
@@ -126,7 +138,7 @@ export function tenantCrypto(db: SupabaseClient): TenantCrypto {
             .insert({
                 user_id: userId,
                 kms_key_arn: fresh.wrapped.kmsKeyArn,
-                wrapped_dek: fresh.wrapped.wrapped,
+                wrapped_dek: bufferToBytea(fresh.wrapped.wrapped),
                 is_active: true,
             })
             .select("id")
@@ -202,7 +214,7 @@ export async function ensureUserHasDek(
         .insert({
             user_id: userId,
             kms_key_arn: fresh.wrapped.kmsKeyArn,
-            wrapped_dek: fresh.wrapped.wrapped,
+            wrapped_dek: bufferToBytea(fresh.wrapped.wrapped),
             is_active: true,
         })
         .select("id")

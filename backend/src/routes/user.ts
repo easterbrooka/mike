@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { createServerSupabase } from "../lib/supabase";
-import { getTenantCrypto } from "../lib/crypto/migrate";
+import { bufferToBytea, getTenantCrypto } from "../lib/crypto/migrate";
 
 export const userRouter = Router();
 
@@ -75,9 +75,11 @@ userRouter.put("/api-keys/:provider", requireAuth, async (req, res) => {
   // Dual-write: seal the value under the user's DEK and write to BOTH the
   // plaintext column (for rollback safety during the cutover soak) and the
   // ciphertext column. A clear (value === null) zeroes both columns.
+  // bufferToBytea is required: supabase-js JSON.stringify-s the body and a
+  // raw Buffer would serialise to `{"type":"Buffer",...}` which bytea rejects.
   const sealed = value === null
     ? null
-    : await getTenantCrypto().sealForUser(userId, value);
+    : bufferToBytea(await getTenantCrypto().sealForUser(userId, value));
   const db = createServerSupabase();
   const { error } = await db
     .from("user_profiles")
