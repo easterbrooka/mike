@@ -9,31 +9,24 @@
 
 import MsgReader from "@kenjiuno/msgreader";
 import type { ParsedEml } from "./eml";
-import { emlToLLMText } from "./eml";
+import { emlToLLMText, stripHtml } from "./eml";
 import { renderAttachments, type AttachmentInput } from "./emailAttachments";
+
+/**
+ * msgreader's per-attachment FieldsData. We only narrow the fields we
+ * touch — the real type has dozens more.
+ */
+interface MsgAttachment {
+    fileName?: string;
+    name?: string;
+    innerMsgContent?: true;
+    attachMimeTag?: string;
+}
 
 export async function extractMsg(buf: ArrayBuffer): Promise<ParsedEml> {
     const reader = new MsgReader(buf);
     const data = reader.getFileData();
-
-    const recipients = data.recipients ?? [];
-    const to = joinAddresses(recipients.filter((r) => r.recipType === "to"));
-    const cc = joinAddresses(recipients.filter((r) => r.recipType === "cc"));
-
-    return {
-        subject: data.subject ?? null,
-        from: formatSender(data.senderName, data.senderEmail),
-        to,
-        cc,
-        date: parseDate(data.messageDeliveryTime),
-        text: data.body ?? "",
-        attachments: (data.attachments ?? [])
-            .filter((a) => !!a.fileName)
-            .map((a) => ({
-                filename: a.fileName as string,
-                contentType: a.attachMimeTag ?? null,
-            })),
-    };
+    return buildParsedEml(data);
 }
 
 /**
@@ -47,36 +40,21 @@ export async function extractMsgForLLM(
 ): Promise<string> {
     const reader = new MsgReader(buf);
     const data = reader.getFileData();
-
-    const recipients = data.recipients ?? [];
-    const to = joinAddresses(recipients.filter((r) => r.recipType === "to"));
-    const cc = joinAddresses(recipients.filter((r) => r.recipType === "cc"));
-
-    const eml: ParsedEml = {
-        subject: data.subject ?? null,
-        from: formatSender(data.senderName, data.senderEmail),
-        to,
-        cc,
-        date: parseDate(data.messageDeliveryTime),
-        text: data.body ?? "",
-        attachments: (data.attachments ?? [])
-            .filter((a) => !!a.fileName)
-            .map((a) => ({
-                filename: a.fileName as string,
-                contentType: a.attachMimeTag ?? null,
-            })),
-    };
-    const baseText = emlToLLMText(eml);
+    const baseText = emlToLLMText(buildParsedEml(data));
 
     const attachmentBytes: AttachmentInput[] = [];
-    for (let i = 0; i < (data.attachments ?? []).length; i++) {
-        const meta = (data.attachments ?? [])[i];
-        if (!meta?.fileName) continue;
+    const attachments = (data.attachments ?? []) as MsgAttachment[];
+    for (let i = 0; i < attachments.length; i++) {
+        const meta = attachments[i];
+        if (!hasAttachmentName(meta)) continue;
         try {
             const att = reader.getAttachment(i);
             if (!att?.content) continue;
             attachmentBytes.push({
-                filename: meta.fileName,
+                // msgreader fills in `.msg` when this is an inner-msg
+                // attachment (`fileName: attachData.name + ".msg"`),
+                // otherwise hands back the real attachment fileName.
+                filename: att.fileName ?? displayName(meta),
                 bytes: Buffer.from(att.content),
             });
         } catch {
@@ -89,6 +67,60 @@ export async function extractMsgForLLM(
     const expanded = await renderAttachments(attachmentBytes, depth);
     if (!expanded) return baseText;
     return `${baseText}\n\n${expanded}`;
+}
+
+function buildParsedEml(data: ReturnType<MsgReader["getFileData"]>): ParsedEml {
+    const recipients = data.recipients ?? [];
+    const to = joinAddresses(recipients.filter((r) => r.recipType === "to"));
+    const cc = joinAddresses(recipients.filter((r) => r.recipType === "cc"));
+
+    return {
+        subject: data.subject ?? null,
+        from: formatSender(data.senderName, data.senderEmail),
+        to,
+        cc,
+        date: parseDate(data.messageDeliveryTime),
+        text: emailBodyText(data),
+        attachments: ((data.attachments ?? []) as MsgAttachment[])
+            .map((a) => ({
+                filename: displayName(a),
+                contentType: a.attachMimeTag ?? null,
+            }))
+            .filter(
+                (a): a is { filename: string; contentType: string | null } =>
+                    !!a.filename,
+            ),
+    };
+}
+
+/**
+ * Fall back from plain-text body to HTML-stripped body when Outlook
+ * saved the message in HTML mode (PidTagBodyHtml present, PidTagBody
+ * empty). Matches the .eml flow which already does this. RTF
+ * decompression (PidTagRtfCompressed) is not handled — covering it
+ * would need decompressrtf + an RTF→text pass; defer until users hit
+ * an RTF-only .msg in practice.
+ */
+function emailBodyText(data: ReturnType<MsgReader["getFileData"]>): string {
+    if (data.body && data.body.trim()) return data.body;
+    if (data.bodyHtml && data.bodyHtml.trim()) return stripHtml(data.bodyHtml);
+    return "";
+}
+
+/**
+ * Inner-msg attachments don't have `fileName` set — they have `name`
+ * with `innerMsgContent: true`, and msgreader.getAttachment() materialises
+ * `name + ".msg"` as the filename. Normal attachments have `fileName`
+ * directly.
+ */
+function hasAttachmentName(a: MsgAttachment): boolean {
+    return !!a.fileName || a.innerMsgContent === true;
+}
+
+function displayName(a: MsgAttachment): string {
+    if (a.fileName) return a.fileName;
+    if (a.innerMsgContent === true) return `${a.name ?? "embedded"}.msg`;
+    return "";
 }
 
 function formatSender(

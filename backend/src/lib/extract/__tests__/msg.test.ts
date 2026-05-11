@@ -94,6 +94,62 @@ describe("extractMsg", () => {
     });
 });
 
+describe("extractMsg body fallback", () => {
+    it("uses bodyHtml (stripped) when plain-text body is empty", async () => {
+        mockGetFileData.mockReturnValue({
+            subject: "HTML-only body",
+            bodyHtml:
+                "<p>Hello <strong>team</strong></p><p>Please review.</p>",
+        });
+        const out = await extractMsg(emptyBuf());
+        expect(out.text).toContain("Hello team");
+        expect(out.text).toContain("Please review.");
+        expect(out.text).not.toContain("<p>");
+        expect(out.text).not.toContain("<strong>");
+    });
+
+    it("prefers plain-text body when both are present", async () => {
+        mockGetFileData.mockReturnValue({
+            body: "plain text wins",
+            bodyHtml: "<p>html loses</p>",
+        });
+        expect((await extractMsg(emptyBuf())).text).toBe("plain text wins");
+    });
+
+    it("returns empty string when neither body nor bodyHtml is set", async () => {
+        mockGetFileData.mockReturnValue({});
+        expect((await extractMsg(emptyBuf())).text).toBe("");
+    });
+});
+
+describe("extractMsg inner-msg attachment detection", () => {
+    it("lists inner-msg attachments using name + .msg synthesised filename", async () => {
+        mockGetFileData.mockReturnValue({
+            attachments: [
+                { fileName: "report.pdf", attachMimeTag: "application/pdf" },
+                {
+                    name: "Forwarded message",
+                    innerMsgContent: true,
+                },
+            ],
+        });
+        const out = await extractMsg(emptyBuf());
+        expect(out.attachments).toEqual([
+            { filename: "report.pdf", contentType: "application/pdf" },
+            { filename: "Forwarded message.msg", contentType: null },
+        ]);
+    });
+
+    it("falls back to 'embedded.msg' for inner-msg attachments with no name", async () => {
+        mockGetFileData.mockReturnValue({
+            attachments: [{ innerMsgContent: true }],
+        });
+        expect((await extractMsg(emptyBuf())).attachments).toEqual([
+            { filename: "embedded.msg", contentType: null },
+        ]);
+    });
+});
+
 describe("extractMsgForLLM", () => {
     it("inlines a .txt attachment's text via getAttachment(idx)", async () => {
         mockGetFileData.mockReturnValue({
@@ -139,6 +195,32 @@ describe("extractMsgForLLM", () => {
         const out = await extractMsgForLLM(emptyBuf());
         expect(out).toContain("no attachments here");
         expect(out).not.toContain("--- Attachment:");
+    });
+
+    it("expands an inner-msg attachment recursively (synthesised .msg filename)", async () => {
+        // Outer .msg has an embedded message; inner content is a plain
+        // ASCII string that mocks the burned-msg bytes. Because the inner
+        // bytes are NOT a real .msg, msgreader recursion will throw — but
+        // the depth-1 extract should still produce the synthesised
+        // `--- Attachment: ... ---` header with a "(could not extract)"
+        // placeholder, which is enough to prove the dispatcher is invoked.
+        mockGetFileData.mockReturnValue({
+            subject: "Outer subject",
+            body: "Outer body text.",
+            attachments: [
+                {
+                    name: "Forwarded message",
+                    innerMsgContent: true,
+                },
+            ],
+        });
+        mockGetAttachment.mockReturnValue({
+            fileName: "Forwarded message.msg",
+            content: new TextEncoder().encode("not-a-real-msg-payload"),
+        });
+        const out = await extractMsgForLLM(emptyBuf());
+        expect(out).toContain("Outer body text.");
+        expect(out).toMatch(/--- Attachment: Forwarded message\.msg ---/);
     });
 
     it("survives a getAttachment() failure for one attachment without dropping siblings", async () => {
