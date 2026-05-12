@@ -14,10 +14,7 @@ export function SiteLogo({
     animate = false,
     asLink = false,
 }: SiteLogoProps) {
-    // Production: marketing site (different origin). Dev: just the app
-    // root, since there's no separate landing page running locally.
-    const landingHref =
-        process.env.NODE_ENV === "production" ? "https://mikeoss.com" : "/";
+    const landingHref = "/";
     const sizeClasses = {
         sm: "text-xl",
         md: "text-2xl",
@@ -34,12 +31,13 @@ export function SiteLogo({
 
     const logo = (
         <h1
-            className={`flex items-center gap-1.5 ${sizeClasses[size]} font-light font-serif ${
+            className={`flex items-center gap-1.5 ${sizeClasses[size]} font-light ${
                 animate ? "sidebar-fade-in" : ""
             } ${className}`}
+            style={{ fontFamily: "var(--font-barlow)" }}
         >
             <MikeIcon size={iconSizes[size]} />
-            <span>Michelle</span>
+            <span>Ellen</span>
         </h1>
     );
 

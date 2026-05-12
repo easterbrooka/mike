@@ -129,11 +129,12 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                         >
                             <MikeIcon size={22} />
                             <span
-                                className={`text-2xl font-light font-serif ${
+                                className={`text-2xl font-light ${
                                     shouldAnimate ? "sidebar-fade-in" : ""
                                 }`}
+                                style={{ fontFamily: "var(--font-barlow)" }}
                             >
-                                Michelle
+                                Ellen
                             </span>
                         </Link>
                     </div>
