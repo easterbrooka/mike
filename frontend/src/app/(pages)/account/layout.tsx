@@ -46,7 +46,7 @@ export default function AccountLayout({
     return (
         <div className="flex flex-col h-full md:overflow-y-auto px-6 py-6 md:py-10">
             <div className="max-w-5xl w-full mx-auto">
-                <h1 className="text-4xl font-medium mb-8 font-eb-garamond">
+                <h1 className="text-4xl font-medium mb-8 font-serif">
                     Settings
                 </h1>
 

@@ -31,10 +31,9 @@ export function SiteLogo({
 
     const logo = (
         <h1
-            className={`flex items-center gap-1.5 ${sizeClasses[size]} font-light ${
+            className={`flex items-center gap-1.5 ${sizeClasses[size]} font-light font-serif ${
                 animate ? "sidebar-fade-in" : ""
             } ${className}`}
-            style={{ fontFamily: "var(--font-barlow)" }}
         >
             <MikeIcon size={iconSizes[size]} />
             <span>Ellen</span>
