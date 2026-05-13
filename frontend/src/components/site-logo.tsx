@@ -14,10 +14,7 @@ export function SiteLogo({
     animate = false,
     asLink = false,
 }: SiteLogoProps) {
-    // Production: marketing site (different origin). Dev: just the app
-    // root, since there's no separate landing page running locally.
-    const landingHref =
-        process.env.NODE_ENV === "production" ? "https://mikeoss.com" : "/";
+    const landingHref = "/";
     const sizeClasses = {
         sm: "text-xl",
         md: "text-2xl",
@@ -39,7 +36,7 @@ export function SiteLogo({
             } ${className}`}
         >
             <MikeIcon size={iconSizes[size]} />
-            <span>Michelle</span>
+            <span>Ellen</span>
         </h1>
     );
 

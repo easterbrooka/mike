@@ -14,9 +14,9 @@ export default function GlobalError({
     return (
         <html lang="en">
             <head>
-                <title>Something went wrong – Michelle</title>
+                <title>Something went wrong – Ellen</title>
                 <style>{`
-                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=EB+Garamond:wght@400;500&display=swap');
+                    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Barlow:wght@300;400;500&display=swap');
 
                     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -37,7 +37,7 @@ export default function GlobalError({
                     }
 
                     .error-title {
-                        font-family: 'EB Garamond', Georgia, serif;
+                        font-family: 'Barlow', system-ui, sans-serif;
                         font-size: 1.75rem;
                         font-weight: 400;
                         color: #111;

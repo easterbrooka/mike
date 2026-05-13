@@ -47,7 +47,7 @@ export function SimpleLinkDialog({
 
                     {/* Header */}
                     <div className="flex items-center justify-between mb-6">
-                        <h2 className="text-3xl font-light font-eb-garamond text-gray-900">
+                        <h2 className="text-3xl font-light font-serif text-gray-900">
                             Share Chat
                         </h2>
                     </div>
